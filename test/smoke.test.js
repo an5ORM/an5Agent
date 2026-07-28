@@ -1,35 +1,35 @@
 const assert = require('assert');
-const { An5Agent, listModels, describeModel, generateQuery, analyzeSchema, executeQuery } = require('../dist/index.js');
+const { An5Agent, schemaTool, queryTool, databaseTool, analyzeSchema } = require('../dist/index.js');
 
 async function run() {
   // Test 1: Agent instantiation
   const agent = new An5Agent();
   assert.ok(agent, 'Agent should be instantiated');
-  assert.ok(agent.getTools().length >= 10, `Should have at least 10 tools, got ${agent.getTools().length}`);
+  assert.ok(agent.getTools().length >= 7, `Should have at least 7 tools, got ${agent.getTools().length}`);
   console.log(`✅ Agent created with ${agent.getTools().length} tools`);
 
-  // Test 2: listModels tool
-  const listResult = await agent.executeTool('listModels', {});
-  assert.ok(listResult.models, 'listModels should return models');
+  // Test 2: schema tool - list action
+  const listResult = await agent.executeTool('schema', { action: 'list' });
+  assert.ok(listResult.models, 'schema list should return models');
   assert.ok(listResult.models.length > 0, 'Should have at least one model');
-  console.log(`✅ listModels returned ${listResult.totalModels} models`);
+  console.log(`✅ schema(list) returned ${listResult.totalModels} models`);
 
-  // Test 3: describeModel tool
-  const descResult = await agent.executeTool('describeModel', { modelName: 'User' });
+  // Test 3: schema tool - describe action
+  const descResult = await agent.executeTool('schema', { action: 'describe', modelName: 'User' });
   assert.ok(descResult.found, 'User model should be found');
   assert.ok(descResult.model.fields.length > 0, 'User should have fields');
-  console.log(`✅ describeModel found ${descResult.model.name} with ${descResult.model.fields.length} fields`);
+  console.log(`✅ schema(describe) found ${descResult.model.name} with ${descResult.model.fields.length} fields`);
 
-  // Test 4: generateQuery tool
-  const queryResult = await agent.executeTool('generateQuery', { description: 'list all users' });
+  // Test 4: query tool - generate action
+  const queryResult = await agent.executeTool('query', { action: 'generate', description: 'list all users' });
   assert.ok(queryResult.sql, 'Should generate SQL');
   assert.ok(queryResult.sql.toLowerCase().includes('select'), 'SQL should be a SELECT');
-  console.log(`✅ generateQuery:\n${queryResult.sql}`);
+  console.log(`✅ query(generate):\n${queryResult.sql}`);
 
-  // Test 5: validateQuery tool
-  const validateResult = await agent.executeTool('validateQuery', { sql: 'SELECT * FROM [dbo].[Users] WITH (NOLOCK)' });
+  // Test 5: query tool - validate action
+  const validateResult = await agent.executeTool('query', { action: 'validate', sql: 'SELECT * FROM [dbo].[Users] WITH (NOLOCK)' });
   assert.ok(validateResult.isValid, 'Valid query should pass');
-  console.log(`✅ validateQuery: PASS`);
+  console.log(`✅ query(validate): PASS`);
 
   // Test 6: analyzeSchema tool
   const analysis = await agent.executeTool('analyzeSchema', {});
@@ -44,15 +44,15 @@ async function run() {
   console.log(`✅ Agent.process() triggered ${response.toolCalls.length} tool(s)`);
 
   // Test 8: Static tool export (direct usage)
-  assert.ok(typeof listModels.execute === 'function', 'listModels should have execute function');
-  assert.ok(typeof generateQuery.execute === 'function', 'generateQuery should have execute function');
+  assert.ok(typeof schemaTool.execute === 'function', 'schemaTool should have execute function');
+  assert.ok(typeof queryTool.execute === 'function', 'queryTool should have execute function');
   console.log(`✅ Static tool exports verified`);
 
-  // Test 9: Adapter detection (without connection string - will use mock)
-  const mockExec = await executeQuery.execute({ sql: 'SELECT * FROM Users' });
+  // Test 9: database tool - execute action (mock)
+  const mockExec = await databaseTool.execute({ action: 'execute', sql: 'SELECT * FROM Users' });
   assert.ok(mockExec.success, 'Mock query should succeed');
   assert.ok(mockExec.rows.length > 0, 'Should return mock rows');
-  console.log(`✅ Mock query via executeQuery with ${mockExec.rows.length} rows`);
+  console.log(`✅ Mock query via database(execute) with ${mockExec.rows.length} rows`);
 
   // Test 10: Agent.process() with SQL query
   const sqlResponse = await agent.process({
