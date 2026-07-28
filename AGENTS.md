@@ -11,11 +11,12 @@ src/
 ├── tools/
 │   ├── index.ts          # Barrel export
 │   ├── tool-types.ts     # Tool interface, Zod schemas
-│   ├── schema-tools.ts   # listModels, describeModel, getRelations
-│   ├── query-tools.ts    # generateQuery, explainQuery, validateQuery
-│   ├── database-tools.ts # executeQuery, describeTable, healthCheck
+│   ├── schema-tools.ts   # schema action tool: list, describe, relations
+│   ├── query-tools.ts    # query action tool: generate, explain, validate
+│   ├── database-tools.ts # database action tool: execute, describe, health
 │   ├── codegen-tools.ts  # generateClientCode, analyzeSchema
-│   ├── rag-tools.ts      # retrieveSchema, retrieveQuerySamples
+│   ├── rag-tools.ts      # retrieve action tool: schema, queries
+│   ├── task-tools.ts     # task action tool: create, list, update, delete
 │   └── metadata.ts       # Load metadata from an5Client
 └── rag/
     ├── index.ts          # Genkit singleton + vector store config
@@ -23,30 +24,26 @@ src/
     └── embedder.ts       # Custom embedding (OpenAI/Cohere/dummy)
 ```
 
-## Tools (13 total)
+## Tools (7 total)
 
 ### Schema Exploration
-- `listModels` — List all models/tables in schema
-- `describeModel` — Get detailed model info (fields, types, constraints)
-- `getRelations` — Get foreign key relationships
+- `schema` — Actions: `list`, `describe`, `relations`
 
 ### Query Operations
-- `generateQuery` — Generate SQL from natural language description
-- `explainQuery` — Analyze SQL intent, tables, complexity
-- `validateQuery` — Validate SQL against schema
+- `query` — Actions: `generate`, `explain`, `validate`
 
 ### Database Operations
-- `executeQuery` — Run SQL queries (requires connection string)
-- `describeTable` — Get column/index details for a table
-- `databaseHealthCheck` — Test database connectivity
+- `database` — Actions: `execute`, `describe`, `health`
 
 ### Code Generation
 - `generateClientCode` — Generate TS/Python/.NET client code
 - `analyzeSchema` — Analyze schema for design issues
 
 ### RAG (Retrieval-Augmented Generation)
-- `retrieveSchema` — Semantic search over schema documentation
-- `retrieveQuerySamples` — Find similar query examples
+- `retrieve` — Actions: `schema`, `queries`
+
+### Task Workflows
+- `task` — Actions: `create`, `list`, `update`, `delete`
 
 ## Tool Interface
 

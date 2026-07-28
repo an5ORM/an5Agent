@@ -1,6 +1,6 @@
 # an5Agent
 
-AI agent library for AN5 ORM. Provides 13 tools for schema exploration, query generation, database operations, code generation, and RAG-powered semantic search.
+AI agent library for AN5 ORM. Provides 7 consolidated tools for schema exploration, query generation, database operations, code generation, task workflows, and RAG-powered semantic search.
 
 ## Features
 
@@ -13,7 +13,7 @@ AI agent library for AN5 ORM. Provides 13 tools for schema exploration, query ge
 ## Installation
 
 ```bash
-npm install
+npm install @an5/agent
 ```
 
 ## Usage
@@ -36,32 +36,28 @@ console.log(response.answer);
 console.log(response.toolCalls);
 
 // Execute individual tools
-const models = await agent.executeTool('listModels', {
+const models = await agent.executeTool('schema', {
+  action: 'list',
   schemaPath: '../an5Schema',
 });
 
-const sql = await agent.executeTool('generateQuery', {
+const sql = await agent.executeTool('query', {
+  action: 'generate',
   description: 'Find top 10 customers by total spend',
 });
 ```
 
 ## Available Tools
 
-| Tool | Description |
-|------|-------------|
-| `listModels` | List all models in schema |
-| `describeModel` | Get detailed model structure |
-| `getRelations` | List all relations |
-| `generateQuery` | Generate SQL from description |
-| `explainQuery` | Analyze SQL query intent |
-| `validateQuery` | Check SQL for errors |
-| `executeQuery` | Run SELECT queries |
-| `describeTable` | Get table columns and indexes |
-| `healthCheck` | Check database connectivity |
-| `generateClientCode` | Generate TS/Python/.NET code |
-| `analyzeSchema` | Find schema issues |
-| `retrieveSchema` | RAG semantic schema search |
-| `retrieveQuerySamples` | RAG semantic query search |
+| Tool | Actions | Description |
+|------|---------|-------------|
+| `schema` | `list`, `describe`, `relations` | Explore models, fields, and relationships |
+| `query` | `generate`, `explain`, `validate` | Work with SQL from natural language or existing queries |
+| `database` | `execute`, `describe`, `health` | Run safe database operations and inspect tables |
+| `generateClientCode` | n/a | Generate TS/Python/.NET code |
+| `analyzeSchema` | n/a | Find schema design issues |
+| `retrieve` | `schema`, `queries` | RAG semantic search over schema and query samples |
+| `task` | `create`, `list`, `update`, `delete` | Manage task workflows |
 
 ## RAG Pipeline
 
@@ -110,11 +106,12 @@ User Question
      ▼
 An5Agent.process()
      │
-     ├─► Schema Tools (listModels, describeModel, ...)
-     ├─► Query Tools (generateQuery, explainQuery, ...)
-     ├─► Database Tools (executeQuery, healthCheck, ...)
-     ├─► Codegen Tools (generateClientCode, analyzeSchema)
-     └─► RAG Tools (retrieveSchema, retrieveQuerySamples)
+    ├─► schema (list, describe, relations)
+    ├─► query (generate, explain, validate)
+    ├─► database (execute, describe, health)
+    ├─► Codegen Tools (generateClientCode, analyzeSchema)
+    ├─► retrieve (schema, queries)
+    └─► task (create, list, update, delete)
            │
            ▼
        AgentResponse { answer, toolCalls }
