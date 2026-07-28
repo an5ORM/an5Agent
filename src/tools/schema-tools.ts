@@ -3,112 +3,95 @@ import type { Tool } from './tool-types';
 import { ModelSchema } from './tool-types';
 import { loadMetadata } from './metadata';
 
-const listModelsInputSchema = z.object({
+const schemaInputSchema = z.object({
+  action: z.enum(['list', 'describe', 'relations']).describe('Action to perform'),
   schemaPath: z.string().optional().describe('Path to .an5 schema file or directory'),
+  modelName: z.string().optional().describe('Model name (required for describe, optional for relations)'),
 });
 
-const listModelsOutputSchema = z.object({
-  models: z.array(
-    z.object({
-      name: z.string().describe('Model name'),
-      schema: z.string().optional().describe('Database schema'),
-      fieldCount: z.number().describe('Number of fields'),
-      relationCount: z.number().describe('Number of relations'),
-    })
-  ),
-  totalModels: z.number(),
-});
+const schemaOutputSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('list'),
+    models: z.array(
+      z.object({
+        name: z.string(),
+        schema: z.string().optional(),
+        fieldCount: z.number(),
+        relationCount: z.number(),
+      })
+    ),
+    totalModels: z.number(),
+  }),
+  z.object({
+    action: z.literal('describe'),
+    model: ModelSchema.nullable(),
+    found: z.boolean(),
+  }),
+  z.object({
+    action: z.literal('relations'),
+    relations: z.array(
+      z.object({
+        fromModel: z.string(),
+        fromField: z.string(),
+        toModel: z.string(),
+        toField: z.string(),
+        type: z.enum(['one-to-many', 'many-to-one', 'one-to-one', 'many-to-many']),
+      })
+    ),
+  }),
+]);
 
-export const listModels: Tool = {
-  name: 'listModels',
+export const schemaTool: Tool = {
+  name: 'schema',
   description:
-    'List all models/tables defined in the schema. Use this when the user asks what tables exist, what models are available, or to get an overview of the database structure.',
-  inputSchema: listModelsInputSchema,
-  outputSchema: listModelsOutputSchema,
-  async execute(input: { schemaPath?: string }, context) {
+    'Explore data models and schema structure. Actions: list (all models), describe (model details), relations (foreign keys).',
+  inputSchema: schemaInputSchema,
+  outputSchema: schemaOutputSchema,
+  async execute(input: z.infer<typeof schemaInputSchema>, context) {
     const models = parseModels(context?.schemaPath || input.schemaPath);
-    return {
-      models: models.map((m) => ({
-        name: m.name,
-        schema: m.schema,
-        fieldCount: m.fields.length,
-        relationCount: m.relations?.length ?? 0,
-      })),
-      totalModels: models.length,
-    };
-  },
-};
 
-const describeModelInputSchema = z.object({
-  modelName: z.string().describe('Name of the model to describe (case-sensitive)'),
-  schemaPath: z.string().optional().describe('Path to .an5 schema file or directory'),
-});
-
-const describeModelOutputSchema = z.object({
-  model: ModelSchema.nullable(),
-  found: z.boolean(),
-});
-
-export const describeModel: Tool = {
-  name: 'describeModel',
-  description:
-    'Get detailed information about a specific model including all its fields, types, constraints, and relations. Use this when the user asks about a specific table structure, columns, or relationships.',
-  inputSchema: describeModelInputSchema,
-  outputSchema: describeModelOutputSchema,
-  async execute(input: { modelName: string; schemaPath?: string }, context) {
-    const models = parseModels(context?.schemaPath || input.schemaPath);
-    const raw = models.find((m) => m.name === input.modelName) ?? null;
-    const model = raw
-      ? {
-          ...raw,
-          relations: raw.relations?.map((r: any) => ({
-            ...r,
-            type: r.type as 'one-to-many' | 'many-to-one' | 'one-to-one' | 'many-to-many',
+    switch (input.action) {
+      case 'list': {
+        return {
+          action: 'list' as const,
+          models: models.map((m) => ({
+            name: m.name,
+            schema: m.schema,
+            fieldCount: m.fields.length,
+            relationCount: m.relations?.length ?? 0,
           })),
-        }
-      : null;
-    return { model, found: model !== null };
-  },
-};
-
-const getRelationsInputSchema = z.object({
-  modelName: z.string().optional().describe('Optional: filter relations for a specific model'),
-  schemaPath: z.string().optional().describe('Path to .an5 schema file or directory'),
-});
-
-const getRelationsOutputSchema = z.object({
-  relations: z.array(
-    z.object({
-      fromModel: z.string(),
-      fromField: z.string(),
-      toModel: z.string(),
-      toField: z.string(),
-      type: z.enum(['one-to-many', 'many-to-one', 'one-to-one', 'many-to-many']),
-    })
-  ),
-});
-
-export const getRelations: Tool = {
-  name: 'getRelations',
-  description:
-    'Get all relationships between models in the schema. Optionally filter by a specific model. Use this for understanding foreign key relationships, joining tables, or navigating related data.',
-  inputSchema: getRelationsInputSchema,
-  outputSchema: getRelationsOutputSchema,
-  async execute(input: { modelName?: string; schemaPath?: string }, context) {
-    const models = parseModels(context?.schemaPath || input.schemaPath);
-    const allRelations = models.flatMap((m) =>
-      (m.relations ?? []).map((r: any) => ({
-        fromModel: m.name,
-        fromField: r.fromField,
-        toModel: r.toModel,
-        toField: r.toField,
-        type: r.type as 'one-to-many' | 'many-to-one' | 'one-to-one' | 'many-to-many',
-      }))
-    );
-    const relations = input.modelName
-      ? allRelations.filter((r: any) => r.fromModel === input.modelName || r.toModel === input.modelName)
-      : allRelations;
-    return { relations };
+          totalModels: models.length,
+        };
+      }
+      case 'describe': {
+        const raw = models.find((m) => m.name === input.modelName) ?? null;
+        const model = raw
+          ? {
+              ...raw,
+              relations: raw.relations?.map((r: any) => ({
+                ...r,
+                type: r.type as 'one-to-many' | 'many-to-one' | 'one-to-one' | 'many-to-many',
+              })),
+            }
+          : null;
+        return { action: 'describe' as const, model, found: model !== null };
+      }
+      case 'relations': {
+        const allRelations = models.flatMap((m) =>
+          (m.relations ?? []).map((r: any) => ({
+            fromModel: m.name,
+            fromField: r.fromField,
+            toModel: r.toModel,
+            toField: r.toField,
+            type: r.type as 'one-to-many' | 'many-to-one' | 'one-to-one' | 'many-to-many',
+          }))
+        );
+        const relations = input.modelName
+          ? allRelations.filter((r) => r.fromModel === input.modelName || r.toModel === input.modelName)
+          : allRelations;
+        return { action: 'relations' as const, relations };
+      }
+    }
   },
 };
 
@@ -132,7 +115,6 @@ function parseModels(schemaPath?: string): Array<{
     type: string;
   }>;
 }> {
-  // Try loading from an5Client metadata first
   const metadata = loadMetadata();
   if (metadata) {
     const { modelToTable, modelFields } = metadata;
@@ -155,7 +137,6 @@ function parseModels(schemaPath?: string): Array<{
     });
   }
 
-  // Fallback: parse .an5 files directly
   const target = schemaPath || defaultSchemaPath();
   if (target) {
     try {

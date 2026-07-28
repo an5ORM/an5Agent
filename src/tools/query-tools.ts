@@ -2,73 +2,57 @@ import { z } from 'zod';
 import type { Tool } from './tool-types';
 import { QueryExplainSchema } from './tool-types';
 
-const generateQueryInputSchema = z.object({
-  description: z.string().describe('Natural language description of the query you want to generate'),
-  tables: z.array(z.string()).optional().describe('Specific tables to query (optional, inferred if omitted)'),
-  dialect: z.enum(['mssql', 'tsql']).optional().default('mssql').describe('SQL dialect'),
+const queryInputSchema = z.object({
+  action: z.enum(['generate', 'explain', 'validate']).describe('Action to perform'),
+  description: z.string().optional().describe('Natural language description (for generate)'),
+  sql: z.string().optional().describe('SQL query (for explain/validate)'),
+  tables: z.array(z.string()).optional().describe('Specific tables to query (for generate)'),
+  dialect: z.enum(['mssql', 'tsql']).optional().default('mssql').describe('SQL dialect (for generate)'),
 });
 
-const generateQueryOutputSchema = z.object({
-  sql: z.string().describe('Generated SQL query'),
-  explanation: z.string().describe('Explanation of what the query does'),
-  tables: z.array(z.string()).describe('Tables referenced in the query'),
-  warnings: z.array(z.string()).optional().describe('Warnings about potential issues'),
-});
+const queryOutputSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('generate'),
+    sql: z.string(),
+    explanation: z.string(),
+    tables: z.array(z.string()),
+    warnings: z.array(z.string()).optional(),
+  }),
+  QueryExplainSchema.extend({ action: z.literal('explain') }),
+  z.object({
+    action: z.literal('validate'),
+    isValid: z.boolean(),
+    errors: z.array(z.string()),
+    warnings: z.array(z.string()),
+    suggestions: z.array(z.string()).optional(),
+  }),
+]);
 
-export const generateQuery: Tool = {
-  name: 'generateQuery',
+export const queryTool: Tool = {
+  name: 'query',
   description:
-    'Generate a SQL Server (T-SQL) query from a natural language description. Use this when the user wants to write a SQL query, needs help with SQL syntax, or wants to convert a question into a database query.',
-  inputSchema: generateQueryInputSchema,
-  outputSchema: generateQueryOutputSchema,
-  async execute(input: { description: string; tables?: string[]; dialect?: string }, _context) {
-    const sql = generateSqlFromDescription(input.description, input.tables);
-    return {
-      sql,
-      explanation: `Generated a T-SQL query${input.tables ? ` targeting tables: ${input.tables.join(', ')}` : ''} based on the description: "${input.description}"`,
-      tables: input.tables ?? extractTableNames(sql),
-      warnings: sql.includes('SELECT *') ? ['SELECT * retrieves all columns; consider specifying only needed columns for better performance'] : undefined,
-    };
-  },
-};
-
-const explainQueryInputSchema = z.object({
-  sql: z.string().describe('The SQL query to explain'),
-});
-
-const explainQueryOutputSchema = QueryExplainSchema;
-
-export const explainQuery: Tool = {
-  name: 'explainQuery',
-  description:
-    'Explain what a SQL Server query does, including the tables involved, conditions, joins, and estimated complexity. Use this when the user pastes a SQL query and wants to understand it, or needs help debugging a query.',
-  inputSchema: explainQueryInputSchema,
-  outputSchema: explainQueryOutputSchema,
-  async execute(input: { sql: string }, _context) {
-    return explainSqlQuery(input.sql);
-  },
-};
-
-const validateQueryInputSchema = z.object({
-  sql: z.string().describe('The SQL query to validate'),
-  schemaPath: z.string().optional().describe('Path to .an5 schema for table/column validation'),
-});
-
-const validateQueryOutputSchema = z.object({
-  isValid: z.boolean().describe('Whether the query appears valid'),
-  errors: z.array(z.string()).describe('Validation errors found'),
-  warnings: z.array(z.string()).describe('Warnings about potential issues'),
-  suggestions: z.array(z.string()).optional().describe('Suggestions for improvement'),
-});
-
-export const validateQuery: Tool = {
-  name: 'validateQuery',
-  description:
-    'Validate a SQL Server query for syntax issues, common mistakes, and best practices. Checks for things like missing WHERE clauses on UPDATE/DELETE, NOLOCK usage, and basic SQL injection risks.',
-  inputSchema: validateQueryInputSchema,
-  outputSchema: validateQueryOutputSchema,
-  async execute(input: { sql: string; schemaPath?: string }, _context) {
-    return validateSqlQuery(input.sql);
+    'Work with SQL queries. Actions: generate (from description), explain (analyze SQL), validate (check SQL).',
+  inputSchema: queryInputSchema,
+  outputSchema: queryOutputSchema,
+  async execute(input: z.infer<typeof queryInputSchema>, _context) {
+    switch (input.action) {
+      case 'generate': {
+        const sql = generateSqlFromDescription(input.description || '', input.tables);
+        return {
+          action: 'generate' as const,
+          sql,
+          explanation: `Generated a T-SQL query${input.tables ? ` targeting tables: ${input.tables.join(', ')}` : ''} based on the description: "${input.description}"`,
+          tables: input.tables ?? extractTableNames(sql),
+          warnings: sql.includes('SELECT *') ? ['SELECT * retrieves all columns; consider specifying only needed columns for better performance'] : undefined,
+        };
+      }
+      case 'explain': {
+        return { action: 'explain' as const, ...explainSqlQuery(input.sql || '') };
+      }
+      case 'validate': {
+        return { action: 'validate' as const, ...validateSqlQuery(input.sql || '') };
+      }
+    }
   },
 };
 

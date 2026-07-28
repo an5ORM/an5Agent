@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Tool } from './tool-types';
+import { loadMetadata } from './metadata';
 
 export interface DatabaseAdapter {
   exec<T = any>(query: string, params?: Record<string, any>): Promise<T[]>;
@@ -43,147 +44,175 @@ function createAdapter(connectionString: string): DatabaseAdapter {
   };
 }
 
-const executeQueryInputSchema = z.object({
-  sql: z.string().describe('The SQL query to execute (SELECT queries only)'),
+const databaseInputSchema = z.object({
+  action: z.enum(['execute', 'describe', 'health']).describe('Action to perform'),
+  sql: z.string().optional().describe('SQL query (for execute)'),
+  tableName: z.string().optional().describe('Table name (for describe)'),
+  schema: z.string().optional().default('dbo').describe('Database schema (for describe)'),
   connectionString: z.string().optional().describe('SQL Server connection string'),
-  params: z.record(z.string(), z.unknown()).optional().describe('Query parameters for parameterized execution'),
+  params: z.record(z.string(), z.unknown()).optional().describe('Query parameters (for execute)'),
 });
 
-const executeQueryOutputSchema = z.object({
-  success: z.boolean(),
-  adapter: z.string().optional().describe('Which adapter was used (an5Adapters or mssql)'),
-  rows: z.array(z.record(z.string(), z.unknown())).optional().describe('Query result rows'),
-  rowCount: z.number().optional().describe('Number of rows returned'),
-  executionTimeMs: z.number().optional().describe('Approximate execution time'),
-  error: z.string().optional().describe('Error message if execution failed'),
-});
+const databaseOutputSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('execute'),
+    success: z.boolean(),
+    adapter: z.string().optional(),
+    rows: z.array(z.record(z.string(), z.unknown())).optional(),
+    rowCount: z.number().optional(),
+    executionTimeMs: z.number().optional(),
+    error: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal('describe'),
+    tableName: z.string(),
+    schema: z.string(),
+    source: z.enum(['schema', 'database']),
+    adapter: z.string().optional(),
+    columns: z.array(z.object({
+      name: z.string(), type: z.string(), isNullable: z.boolean(), isPrimaryKey: z.boolean(),
+      maxLength: z.number().optional(), defaultValue: z.string().optional(),
+    })),
+    indexes: z.array(z.object({
+      name: z.string(), columns: z.array(z.string()), isUnique: z.boolean(), isPrimary: z.boolean(),
+    })).optional(),
+    error: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal('health'),
+    connected: z.boolean(),
+    serverVersion: z.string().optional(),
+    databaseName: z.string().optional(),
+    adapter: z.string().optional(),
+    latencyMs: z.number().optional(),
+    error: z.string().optional(),
+  }),
+]);
 
-export const executeQuery: Tool = {
-  name: 'executeQuery',
+export const databaseTool: Tool = {
+  name: 'database',
   description:
-    'Execute a read-only (SELECT) SQL query against a SQL Server database. Uses an5Adapters for connection pooling when available, falls back to mssql package. ONLY for SELECT queries.',
-  inputSchema: executeQueryInputSchema,
-  outputSchema: executeQueryOutputSchema,
-  async execute(input: { sql: string; connectionString?: string; params?: Record<string, unknown> }) {
-    if (!/^\s*SELECT\b/i.test(input.sql.trim())) {
-      return { success: false, error: 'Only SELECT queries are allowed.' };
-    }
-    if (!input.connectionString) {
-      return { success: true, rows: mockQueryResult(input.sql), rowCount: 3, executionTimeMs: 12 };
-    }
-    try {
-      const adapter = createAdapter(input.connectionString);
-      const start = Date.now();
-      const rows = await adapter.exec(input.sql, (input.params ?? {}) as Record<string, any>);
-      const elapsed = Date.now() - start;
-      return {
-        success: true,
-        adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql',
-        rows,
-        rowCount: rows.length,
-        executionTimeMs: elapsed,
-      };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Unknown database error' };
-    }
-  },
-};
+    'Database operations. Actions: execute (run SELECT query), describe (table structure), health (connection check).',
+  inputSchema: databaseInputSchema,
+  outputSchema: databaseOutputSchema,
+  async execute(input: z.infer<typeof databaseInputSchema>, _context) {
+    switch (input.action) {
+      case 'execute': {
+        if (!/^\s*SELECT\b/i.test((input.sql || '').trim())) {
+          return { action: 'execute' as const, success: false, error: 'Only SELECT queries are allowed.' };
+        }
+        if (!input.connectionString) {
+          return { action: 'execute' as const, success: true, rows: mockQueryResult(input.sql || ''), rowCount: 3, executionTimeMs: 12 };
+        }
+        try {
+          const adapter = createAdapter(input.connectionString);
+          const start = Date.now();
+          const rows = await adapter.exec(input.sql || '', (input.params ?? {}) as Record<string, any>);
+          const elapsed = Date.now() - start;
+          return {
+            action: 'execute' as const,
+            success: true,
+            adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql',
+            rows,
+            rowCount: rows.length,
+            executionTimeMs: elapsed,
+          };
+        } catch (err: any) {
+          return { action: 'execute' as const, success: false, error: err.message || 'Unknown database error' };
+        }
+      }
+      case 'describe': {
+        const safeSchema = input.schema ?? 'dbo';
+        const tableName = input.tableName || '';
 
-const describeTableInputSchema = z.object({
-  tableName: z.string().describe('Name of the table to describe'),
-  schema: z.string().optional().default('dbo').describe('Database schema (default: dbo)'),
-  connectionString: z.string().optional().describe('SQL Server connection string'),
-});
+        // Try reading from schema definition first
+        const metadata = loadMetadata();
+        if (metadata && metadata.modelToTable) {
+          // Find model by table name (case-insensitive)
+          const modelEntry = Object.entries(metadata.modelToTable).find(
+            ([, tbl]) => tbl.toLowerCase() === tableName.toLowerCase()
+          );
+          if (modelEntry) {
+            const [modelName] = modelEntry;
+            const fields = metadata.modelFields[modelName] || {};
+            const columns = Object.entries(fields).map(([fieldName, fieldDef]: [string, any]) => {
+              const ts = typeof fieldDef === 'string' ? fieldDef : (fieldDef?.ts || '');
+              const sql = typeof fieldDef === 'string' ? '' : (fieldDef?.sql || '');
+              return {
+                name: fieldName,
+                type: sql || ts,
+                isNullable: ts.endsWith('?'),
+                isPrimaryKey: fieldName === 'id',
+                maxLength: undefined as number | undefined,
+                defaultValue: undefined as string | undefined,
+              };
+            });
+            return {
+              action: 'describe' as const,
+              tableName,
+              schema: safeSchema,
+              source: 'schema' as const,
+              columns,
+              indexes: [{ name: 'PK_id', columns: ['id'], isUnique: true, isPrimary: true }],
+            };
+          }
+        }
 
-const describeTableOutputSchema = z.object({
-  tableName: z.string(),
-  schema: z.string(),
-  adapter: z.string().optional(),
-  columns: z.array(z.object({
-    name: z.string(), type: z.string(), isNullable: z.boolean(), isPrimaryKey: z.boolean(),
-    maxLength: z.number().optional(), defaultValue: z.string().optional(),
-  })),
-  indexes: z.array(z.object({
-    name: z.string(), columns: z.array(z.string()), isUnique: z.boolean(), isPrimary: z.boolean(),
-  })).optional(),
-  error: z.string().optional(),
-});
-
-export const describeTable: Tool = {
-  name: 'describeTable',
-  description:
-    'Get detailed information about a database table including column names, data types, nullability, primary keys, and indexes. Uses an5Adapters for database introspection when available.',
-  inputSchema: describeTableInputSchema,
-  outputSchema: describeTableOutputSchema,
-  async execute(input: { tableName: string; schema?: string; connectionString?: string }) {
-    const safeSchema = input.schema ?? 'dbo';
-    if (!input.connectionString) {
-      return {
-        tableName: input.tableName, schema: safeSchema,
-        columns: [
-          { name: 'id', type: 'nvarchar', isNullable: false, isPrimaryKey: true, maxLength: 1000 },
-          { name: 'email', type: 'nvarchar', isNullable: false, isPrimaryKey: false, maxLength: 255 },
-          { name: 'name', type: 'nvarchar', isNullable: true, isPrimaryKey: false, maxLength: 255 },
-          { name: 'createdAt', type: 'datetime2', isNullable: false, isPrimaryKey: false },
-        ],
-        indexes: [{ name: 'PK_id', columns: ['id'], isUnique: true, isPrimary: true }, { name: 'UQ_email', columns: ['email'], isUnique: true, isPrimary: false }],
-      };
-    }
-    try {
-      const adapter = createAdapter(input.connectionString);
-      const rows = await adapter.exec(
-        `SELECT c.COLUMN_NAME AS name, c.DATA_TYPE AS type, c.IS_NULLABLE AS isNullable,
-                c.CHARACTER_MAXIMUM_LENGTH AS maxLength, c.COLUMN_DEFAULT AS defaultValue
-         FROM INFORMATION_SCHEMA.COLUMNS c
-         WHERE c.TABLE_NAME = @p_0 AND c.TABLE_SCHEMA = @p_1
-         ORDER BY c.ORDINAL_POSITION`,
-        { p_0: input.tableName, p_1: safeSchema }
-      );
-      return {
-        tableName: input.tableName, schema: safeSchema,
-        adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql',
-        columns: rows.map((row: any) => ({
-          name: row.name, type: row.type, isNullable: row.isNullable === 'YES',
-          isPrimaryKey: !!row.isPrimaryKey, maxLength: row.maxLength || undefined, defaultValue: row.defaultValue || undefined,
-        })),
-      };
-    } catch (err: any) {
-      return { tableName: input.tableName, schema: safeSchema, columns: [], error: err.message || 'Failed to describe table' };
-    }
-  },
-};
-
-const healthCheckInputSchema = z.object({
-  connectionString: z.string().optional().describe('SQL Server connection string'),
-});
-
-const healthCheckOutputSchema = z.object({
-  connected: z.boolean(),
-  serverVersion: z.string().optional(),
-  databaseName: z.string().optional(),
-  adapter: z.string().optional().describe('Which adapter was used (an5Adapters or mssql)'),
-  latencyMs: z.number().optional(),
-  error: z.string().optional(),
-});
-
-export const healthCheck: Tool = {
-  name: 'databaseHealthCheck',
-  description:
-    'Check the database connection health, including server version, database name, and response latency. Uses an5Adapters when available, falls back to mssql package.',
-  inputSchema: healthCheckInputSchema,
-  outputSchema: healthCheckOutputSchema,
-  async execute(input: { connectionString?: string }) {
-    if (!input.connectionString) {
-      return { connected: false, error: 'No connection string provided.' };
-    }
-    try {
-      const adapter = createAdapter(input.connectionString);
-      const start = Date.now();
-      const info = await adapter.version();
-      const elapsed = Date.now() - start;
-      return { connected: true, adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql', serverVersion: info.version, databaseName: info.dbName, latencyMs: elapsed };
-    } catch (err: any) {
-      return { connected: false, error: err.message || 'Connection failed' };
+        // Fallback to database query
+        if (!input.connectionString) {
+          return {
+            action: 'describe' as const,
+            tableName,
+            schema: safeSchema,
+            source: 'database' as const,
+            columns: [
+              { name: 'id', type: 'nvarchar', isNullable: false, isPrimaryKey: true, maxLength: 1000 },
+              { name: 'email', type: 'nvarchar', isNullable: false, isPrimaryKey: false, maxLength: 255 },
+              { name: 'name', type: 'nvarchar', isNullable: true, isPrimaryKey: false, maxLength: 255 },
+              { name: 'createdAt', type: 'datetime2', isNullable: false, isPrimaryKey: false },
+            ],
+            indexes: [{ name: 'PK_id', columns: ['id'], isUnique: true, isPrimary: true }, { name: 'UQ_email', columns: ['email'], isUnique: true, isPrimary: false }],
+          };
+        }
+        try {
+          const adapter = createAdapter(input.connectionString);
+          const rows = await adapter.exec(
+            `SELECT c.COLUMN_NAME AS name, c.DATA_TYPE AS type, c.IS_NULLABLE AS isNullable,
+                    c.CHARACTER_MAXIMUM_LENGTH AS maxLength, c.COLUMN_DEFAULT AS defaultValue
+             FROM INFORMATION_SCHEMA.COLUMNS c
+             WHERE c.TABLE_NAME = @p_0 AND c.TABLE_SCHEMA = @p_1
+             ORDER BY c.ORDINAL_POSITION`,
+            { p_0: tableName, p_1: safeSchema }
+          );
+          return {
+            action: 'describe' as const,
+            tableName,
+            schema: safeSchema,
+            source: 'database' as const,
+            adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql',
+            columns: rows.map((row: any) => ({
+              name: row.name, type: row.type, isNullable: row.isNullable === 'YES',
+              isPrimaryKey: !!row.isPrimaryKey, maxLength: row.maxLength || undefined, defaultValue: row.defaultValue || undefined,
+            })),
+          };
+        } catch (err: any) {
+          return { action: 'describe' as const, tableName, schema: safeSchema, source: 'database' as const, columns: [], error: err.message || 'Failed to describe table' };
+        }
+      }
+      case 'health': {
+        if (!input.connectionString) {
+          return { action: 'health' as const, connected: false, error: 'No connection string provided.' };
+        }
+        try {
+          const adapter = createAdapter(input.connectionString);
+          const start = Date.now();
+          const info = await adapter.version();
+          const elapsed = Date.now() - start;
+          return { action: 'health' as const, connected: true, adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql', serverVersion: info.version, databaseName: info.dbName, latencyMs: elapsed };
+        } catch (err: any) {
+          return { action: 'health' as const, connected: false, error: err.message || 'Connection failed' };
+        }
+      }
     }
   },
 };

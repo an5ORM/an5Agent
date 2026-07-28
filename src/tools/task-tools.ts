@@ -9,104 +9,98 @@ function loadTasksModule() {
   }
 }
 
-export const createTask: Tool = {
-  name: 'createTask',
-  description: 'Create a new task from a code review issue. Extract the issue type, description, and assign priority.',
-  inputSchema: z.object({
-    type: z.enum(['BUG', 'WARNING', 'TODO', 'ISSUE', 'OPTIMIZATION', 'CONCERN']),
-    description: z.string(),
-    file: z.string().optional(),
-    workspaceDir: z.string().optional().describe('Workspace root directory (defaults to cwd)'),
+const taskInputSchema = z.object({
+  action: z.enum(['create', 'list', 'update', 'delete']).describe('Action to perform'),
+  type: z.enum(['BUG', 'WARNING', 'TODO', 'ISSUE', 'OPTIMIZATION', 'CONCERN']).optional().describe('Task type (for create)'),
+  description: z.string().optional().describe('Task description (for create)'),
+  file: z.string().optional().describe('Related file (for create)'),
+  taskId: z.string().optional().describe('Task ID (for update/delete)'),
+  status: z.enum(['todo', 'in-progress', 'done']).optional().describe('Filter or set status'),
+  priority: z.enum(['low', 'medium', 'high']).optional().describe('Filter or set priority'),
+  workspaceDir: z.string().optional().describe('Workspace root directory'),
+});
+
+const taskOutputSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('create'),
+    task: z.object({
+      id: z.string(),
+      title: z.string(),
+      description: z.string(),
+      priority: z.enum(['low', 'medium', 'high']),
+      status: z.enum(['todo', 'in-progress', 'done']),
+      file: z.string().optional(),
+      createdAt: z.string(),
+    }).nullable(),
   }),
-  outputSchema: z.object({
-    id: z.string(),
-    title: z.string(),
-    description: z.string(),
-    priority: z.enum(['low', 'medium', 'high']),
-    status: z.enum(['todo', 'in-progress', 'done']),
-    file: z.string().optional(),
-    createdAt: z.string(),
+  z.object({
+    action: z.literal('list'),
+    tasks: z.array(z.object({
+      id: z.string(),
+      title: z.string(),
+      description: z.string(),
+      priority: z.enum(['low', 'medium', 'high']),
+      status: z.enum(['todo', 'in-progress', 'done']),
+      file: z.string().optional(),
+      createdAt: z.string(),
+    })),
+    total: z.number(),
   }),
-  execute: async (input, context?) => {
+  z.object({
+    action: z.literal('update'),
+    task: z.object({
+      id: z.string(),
+      title: z.string(),
+      description: z.string(),
+      priority: z.enum(['low', 'medium', 'high']),
+      status: z.enum(['todo', 'in-progress', 'done']),
+      file: z.string().optional(),
+      createdAt: z.string(),
+    }).nullable(),
+  }),
+  z.object({
+    action: z.literal('delete'),
+    success: z.boolean(),
+  }),
+]);
+
+export const taskTool: Tool = {
+  name: 'task',
+  description:
+    'Manage tasks. Actions: create (new task), list (all tasks), update (status/priority), delete (by ID).',
+  inputSchema: taskInputSchema,
+  outputSchema: taskOutputSchema,
+  async execute(input: z.infer<typeof taskInputSchema>, context?: ToolContext) {
     const mod = loadTasksModule();
     if (!mod) throw new Error('an5Tasks module not available. Build it first: cd an5Tasks && npm run build');
 
     const workspaceDir = input.workspaceDir || context?.schemaPath || process.cwd();
-    const tasks = await mod.createTasksFromReview(
-      `- ${input.type}: ${input.description}${input.file ? ` (file: ${input.file})` : ''}`,
-      workspaceDir,
-      false
-    );
-    return tasks[0] || null;
-  },
-};
 
-export const listTasks: Tool = {
-  name: 'listTasks',
-  description: 'List all tasks from the tasks.json file in the workspace.',
-  inputSchema: z.object({
-    workspaceDir: z.string().optional().describe('Workspace root directory'),
-    status: z.enum(['todo', 'in-progress', 'done']).optional(),
-    priority: z.enum(['low', 'medium', 'high']).optional(),
-  }),
-  outputSchema: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    description: z.string(),
-    priority: z.enum(['low', 'medium', 'high']),
-    status: z.enum(['todo', 'in-progress', 'done']),
-    file: z.string().optional(),
-    createdAt: z.string(),
-  })),
-  execute: async (input, context?) => {
-    const mod = loadTasksModule();
-    if (!mod) throw new Error('an5Tasks module not available');
-
-    const workspaceDir = input.workspaceDir || context?.schemaPath || process.cwd();
-    return mod.getTasks(workspaceDir, { status: input.status, priority: input.priority });
-  },
-};
-
-export const updateTaskTool: Tool = {
-  name: 'updateTask',
-  description: 'Update a task status or priority in tasks.json.',
-  inputSchema: z.object({
-    workspaceDir: z.string().optional().describe('Workspace root directory'),
-    taskId: z.string(),
-    status: z.enum(['todo', 'in-progress', 'done']).optional(),
-    priority: z.enum(['low', 'medium', 'high']).optional(),
-  }),
-  outputSchema: z.object({
-    id: z.string(),
-    title: z.string(),
-    description: z.string(),
-    priority: z.enum(['low', 'medium', 'high']),
-    status: z.enum(['todo', 'in-progress', 'done']),
-    file: z.string().optional(),
-    createdAt: z.string(),
-  }).nullable(),
-  execute: async (input, context?) => {
-    const mod = loadTasksModule();
-    if (!mod) throw new Error('an5Tasks module not available');
-
-    const workspaceDir = input.workspaceDir || context?.schemaPath || process.cwd();
-    return mod.updateTask(workspaceDir, input.taskId, { status: input.status, priority: input.priority });
-  },
-};
-
-export const deleteTask: Tool = {
-  name: 'deleteTask',
-  description: 'Delete a task from tasks.json by ID.',
-  inputSchema: z.object({
-    workspaceDir: z.string().optional().describe('Workspace root directory'),
-    taskId: z.string(),
-  }),
-  outputSchema: z.boolean(),
-  execute: async (input, context?) => {
-    const mod = loadTasksModule();
-    if (!mod) throw new Error('an5Tasks module not available');
-
-    const workspaceDir = input.workspaceDir || context?.schemaPath || process.cwd();
-    return mod.deleteTask(workspaceDir, input.taskId);
+    switch (input.action) {
+      case 'create': {
+        const type = input.type || 'ISSUE';
+        const desc = input.description || '';
+        const tasks = await mod.createTasksFromReview(
+          `- ${type}: ${desc}${input.file ? ` (file: ${input.file})` : ''}`,
+          workspaceDir,
+          false
+        );
+        return { action: 'create' as const, task: tasks[0] || null };
+      }
+      case 'list': {
+        const tasks = await mod.getTasks(workspaceDir, { status: input.status, priority: input.priority });
+        return { action: 'list' as const, tasks, total: tasks.length };
+      }
+      case 'update': {
+        if (!input.taskId) throw new Error('taskId is required for update');
+        const task = await mod.updateTask(workspaceDir, input.taskId, { status: input.status, priority: input.priority });
+        return { action: 'update' as const, task };
+      }
+      case 'delete': {
+        if (!input.taskId) throw new Error('taskId is required for delete');
+        const success = await mod.deleteTask(workspaceDir, input.taskId);
+        return { action: 'delete' as const, success };
+      }
+    }
   },
 };
