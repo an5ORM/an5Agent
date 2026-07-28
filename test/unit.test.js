@@ -65,76 +65,44 @@ test('Agent exports all tool types', () => {
 test('Agent has DEFAULT_TOOLS list', () => {
   const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   assertIncludes(content, 'DEFAULT_TOOLS');
-  assertIncludes(content, 'listModels');
-  assertIncludes(content, 'describeModel');
-  assertIncludes(content, 'generateQuery');
-  assertIncludes(content, 'executeQuery');
+  assertIncludes(content, 'schemaTool');
+  assertIncludes(content, 'queryTool');
+  assertIncludes(content, 'databaseTool');
+  assertIncludes(content, 'retrieveTool');
+  assertIncludes(content, 'taskTool');
 });
 
 // ─── Schema Tools ────────────────────────────────────────────────────────────
 
 console.log('\nSchema Tools:');
 
-test('schema-tools.ts exports listModels', () => {
+test('schema-tools.ts exports schemaTool', () => {
   const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'schema-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const listModels');
-  assertIncludes(content, "name: 'listModels'");
-});
-
-test('schema-tools.ts exports describeModel', () => {
-  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'schema-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const describeModel');
-  assertIncludes(content, "name: 'describeModel'");
-});
-
-test('schema-tools.ts exports getRelations', () => {
-  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'schema-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const getRelations');
-  assertIncludes(content, "name: 'getRelations'");
+  assertIncludes(content, 'export const schemaTool');
+  assertIncludes(content, "name: 'schema'");
+  assertIncludes(content, "['list', 'describe', 'relations']");
 });
 
 // ─── Query Tools ─────────────────────────────────────────────────────────────
 
 console.log('\nQuery Tools:');
 
-test('query-tools.ts exports generateQuery', () => {
+test('query-tools.ts exports queryTool', () => {
   const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'query-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const generateQuery');
-  assertIncludes(content, "name: 'generateQuery'");
-});
-
-test('query-tools.ts exports explainQuery', () => {
-  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'query-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const explainQuery');
-  assertIncludes(content, "name: 'explainQuery'");
-});
-
-test('query-tools.ts exports validateQuery', () => {
-  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'query-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const validateQuery');
-  assertIncludes(content, "name: 'validateQuery'");
+  assertIncludes(content, 'export const queryTool');
+  assertIncludes(content, "name: 'query'");
+  assertIncludes(content, "['generate', 'explain', 'validate']");
 });
 
 // ─── Database Tools ──────────────────────────────────────────────────────────
 
 console.log('\nDatabase Tools:');
 
-test('database-tools.ts exports executeQuery', () => {
+test('database-tools.ts exports databaseTool', () => {
   const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'database-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const executeQuery');
-  assertIncludes(content, "name: 'executeQuery'");
-});
-
-test('database-tools.ts exports healthCheck', () => {
-  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'database-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const healthCheck');
-  assertIncludes(content, "name: 'databaseHealthCheck'");
-});
-
-test('database-tools.ts exports describeTable', () => {
-  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'database-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const describeTable');
-  assertIncludes(content, "name: 'describeTable'");
+  assertIncludes(content, 'export const databaseTool');
+  assertIncludes(content, "name: 'database'");
+  assertIncludes(content, "['execute', 'describe', 'health']");
 });
 
 // ─── Codegen Tools ───────────────────────────────────────────────────────────
@@ -157,16 +125,18 @@ test('codegen-tools.ts exports analyzeSchema', () => {
 
 console.log('\nRAG Tools:');
 
-test('rag-tools.ts exports retrieveSchemaTool', () => {
+test('rag-tools.ts exports retrieveTool', () => {
   const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'rag-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const retrieveSchemaTool');
-  assertIncludes(content, "name: 'retrieveSchema'");
+  assertIncludes(content, 'export const retrieveTool');
+  assertIncludes(content, "name: 'retrieve'");
+  assertIncludes(content, "['schema', 'queries']");
 });
 
-test('rag-tools.ts exports retrieveQuerySamplesTool', () => {
-  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'rag-tools.ts'), 'utf8');
-  assertIncludes(content, 'export const retrieveQuerySamplesTool');
-  assertIncludes(content, "name: 'retrieveQuerySamples'");
+test('task-tools.ts exports taskTool', () => {
+  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'tools', 'task-tools.ts'), 'utf8');
+  assertIncludes(content, 'export const taskTool');
+  assertIncludes(content, "name: 'task'");
+  assertIncludes(content, "['create', 'list', 'update', 'delete']");
 });
 
 // ─── RAG Pipeline ────────────────────────────────────────────────────────────
@@ -217,10 +187,10 @@ console.log('\nPackage & Config:');
 
 test('package.json is valid with dependencies', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-  assertIncludes(pkg.name, 'an5-agent');
+  assertIncludes(pkg.name, '@an5/agent');
   assert(typeof pkg.dependencies === 'object', 'dependencies should be an object');
   assert('genkit' in pkg.dependencies, 'should have genkit dependency');
-  assert('an5-adapters' in pkg.dependencies, 'should have an5-adapters dependency');
+  assert('@an5/adapters' in pkg.dependencies, 'should have @an5/adapters dependency');
 });
 
 test('AGENTS.md exists with purpose', () => {

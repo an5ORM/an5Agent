@@ -19,7 +19,7 @@ npm install
 ## Usage
 
 ```typescript
-import { createAgent } from 'an5-agent';
+import { createAgent } from '@an5/agent';
 
 const agent = createAgent();
 
@@ -77,7 +77,7 @@ npm run rag:index
 ## Custom Tools
 
 ```typescript
-import { createAgent, Tool } from 'an5-agent';
+import { createAgent, Tool } from '@an5/agent';
 
 const myTool: Tool = {
   name: 'myCustomTool',
