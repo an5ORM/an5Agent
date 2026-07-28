@@ -5,6 +5,13 @@
   "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*.{js,d.ts}",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node test/smoke.test.js",
@@ -18,7 +25,7 @@
   "dependencies": {
     "@genkit-ai/dev-local-vectorstore": "^1.39.0",
     "genkit": "^1.39.0",
-    "an5-adapters": "file:../an5Adapters",
+    "an5-adapters": "^0.1.0",
     "zod": "^4.4.3"
   }
 }
