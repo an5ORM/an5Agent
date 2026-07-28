@@ -1,0 +1,7 @@
+[
+  { "question": "Find top 10 customers by total order amount", "sql": "SELECT TOP 10 c.id, c.name, SUM(o.total) AS total_spent FROM customers c JOIN orders o ON o.customerId = c.id GROUP BY c.id, c.name ORDER BY total_spent DESC", "tags": ["aggregation", "join", "top-n"] },
+  { "question": "Count orders grouped by status", "sql": "SELECT status, COUNT(*) AS count FROM orders GROUP BY status ORDER BY count DESC", "tags": ["aggregation", "group-by"] },
+  { "question": "Find users who never placed an order", "sql": "SELECT u.* FROM users u LEFT JOIN orders o ON o.userId = u.id WHERE o.id IS NULL", "tags": ["left-join", "null-check"] },
+  { "question": "Get paginated list of products with category names", "sql": "SELECT p.id, p.name, c.name AS category FROM products p JOIN categories c ON p.categoryId = c.id ORDER BY p.name OFFSET 0 ROWS FETCH NEXT 20 ROWS ONLY", "tags": ["pagination", "join"] },
+  { "question": "Search users by name with LIKE", "sql": "SELECT id, name, email FROM users WHERE name LIKE ''%'' + @search + ''%'' ORDER BY name", "tags": ["search", "like", "parameterized"] }
+]
