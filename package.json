@@ -9,6 +9,12 @@
     "dist/**/*.{js,d.ts}",
     "README.md"
   ],
+  "author": "an5ORM",
+  "homepage": "https://github.com/an5ORM/an5",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/an5ORM/an5Agent.git"
+  },
   "publishConfig": {
     "access": "public"
   },
