@@ -64,30 +64,107 @@ const analyzeSchemaOutputSchema = z.object({
 export const analyzeSchema: Tool = {
   name: 'analyzeSchema',
   description:
-    'Analyze a database schema for potential design issues such as missing primary keys, tables without indexes, inconsistent naming, or missing relationships. Use this for schema reviews, code reviews, or when optimizing database design.',
+    'Analyze a database schema for design issues such as missing primary keys, unindexed foreign key fields, missing audit timestamps, unindexed unique candidates, and naming convention violations. Use this for schema reviews and database optimization.',
   inputSchema: analyzeSchemaInputSchema,
   outputSchema: analyzeSchemaOutputSchema,
   async execute(input: { schemaPath?: string }, context) {
     const models = parseModelsForAnalysis(context?.schemaPath || input.schemaPath);
     const issues: Array<z.infer<typeof SchemaIssueSchema>> = [];
-    let missingPkCount = 0, totalFields = 0, totalRelations = 0;
+    let missingPkCount = 0, missingIndexCount = 0, totalFields = 0, totalRelations = 0;
+
     for (const model of models) {
       totalFields += model.fields.length;
       totalRelations += model.relations?.length ?? 0;
+
+      // Rule 1: Check Primary Key (@id)
       if (!model.fields.some((f: any) => f.isId)) {
         missingPkCount++;
-        issues.push({ severity: 'error' as const, model: model.name, message: `Model "${model.name}" has no primary key field (@id)`, suggestion: 'Add an @id attribute to a field, typically "id String @id @default(uuid())"' });
+        issues.push({
+          severity: 'error' as const,
+          model: model.name,
+          category: 'pk',
+          message: `Model "${model.name}" has no primary key field (@id)`,
+          suggestion: 'Add an @id attribute to a primary key field',
+          autoFixSql: `id String @id @default(uuid())`,
+        });
       }
+
+      // Rule 2: Naming Conventions (PascalCase for Model)
+      if (model.name && model.name[0] !== model.name[0].toUpperCase()) {
+        issues.push({
+          severity: 'warning' as const,
+          model: model.name,
+          category: 'naming',
+          message: `Model name "${model.name}" should use PascalCase`,
+          suggestion: `Rename model "${model.name}" to "${model.name.charAt(0).toUpperCase() + model.name.slice(1)}"`,
+        });
+      }
+
+      // Rule 3: Check Audit Timestamps
+      const hasCreatedAt = model.fields.some((f: any) => f.name === 'createdAt' || f.name === 'created_at');
+      if (!hasCreatedAt) {
+        issues.push({
+          severity: 'info' as const,
+          model: model.name,
+          category: 'audit',
+          message: `Model "${model.name}" lacks a "createdAt" audit timestamp`,
+          suggestion: 'Add a createdAt DateTime @default(now()) field to track record creation time',
+          autoFixSql: `createdAt DateTime @default(now())`,
+        });
+      }
+
       for (const field of model.fields) {
-        if (field.name === 'name' && !field.isRequired) {
-          issues.push({ severity: 'info' as const, model: model.name, field: field.name, message: `Optional field "${field.name}" in "${model.name}" - consider if this should be required` });
+        // Rule 4: Foreign Key Indexing (*Id fields or relation references)
+        const isFkCandidate = (field.name.endsWith('Id') && field.name !== 'id') || field.isFk;
+        if (isFkCandidate && !field.isIndexed && !model.indexes?.includes(field.name)) {
+          missingIndexCount++;
+          issues.push({
+            severity: 'warning' as const,
+            model: model.name,
+            field: field.name,
+            category: 'index',
+            message: `Foreign key field "${field.name}" in "${model.name}" is not indexed`,
+            suggestion: `Add an @index or @@index([${field.name}]) attribute to improve query JOIN performance`,
+            autoFixSql: `@@index([${field.name}])`,
+          });
+        }
+
+        // Rule 5: Unique Candidates (email, username, slug, code, sku)
+        const uniqueCandidates = ['email', 'username', 'slug', 'sku', 'code'];
+        if (uniqueCandidates.includes(field.name.toLowerCase()) && !field.isUnique && !field.isId) {
+          issues.push({
+            severity: 'warning' as const,
+            model: model.name,
+            field: field.name,
+            category: 'unique',
+            message: `Candidate unique field "${field.name}" in "${model.name}" lacks @unique attribute`,
+            suggestion: `Consider adding @unique to enforce uniqueness on "${field.name}"`,
+            autoFixSql: `${field.name} ${field.type} @unique`,
+          });
         }
       }
     }
+
     if (models.length === 0) {
-      issues.push({ severity: 'warning' as const, model: 'N/A', message: 'No models found in schema', suggestion: 'Define at least one model with @id field' });
+      issues.push({
+        severity: 'warning' as const,
+        model: 'N/A',
+        category: 'empty',
+        message: 'No models found in schema',
+        suggestion: 'Define at least one model with @id field',
+      });
     }
-    return { issues, summary: { totalModels: models.length, totalFields, totalRelations, missingPrimaryKeys: missingPkCount } };
+
+    return {
+      issues,
+      summary: {
+        totalModels: models.length,
+        totalFields,
+        totalRelations,
+        missingPrimaryKeys: missingPkCount,
+        missingIndexes: missingIndexCount,
+      },
+    };
   },
 };
 

@@ -19,7 +19,7 @@ export {
   retrieveTool,
   taskTool,
 } from './tools';
-export { indexSchema, indexQuerySamples, retrieveSchema, retrieveQuerySamples, parseAn5Schema } from './rag/indexer';
+export { indexSchema, indexQuerySamples, retrieveSchema, retrieveQuerySamples, parseAn5Schema, autoSyncSchemaIndex, checkSchemaIndexStale } from './rag/indexer';
 
 export interface DatabaseInsight {
   databaseName?: string;

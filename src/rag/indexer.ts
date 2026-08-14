@@ -143,3 +143,32 @@ export async function retrieveQuerySamples(query: string, k = 3): Promise<string
     return dp;
   });
 }
+
+let lastSchemaHash = '';
+
+function computeSchemaHash(schemaDir: string): string {
+  if (!fs.existsSync(schemaDir)) return '';
+  const crypto = require('crypto');
+  const files = fs.readdirSync(schemaDir).filter((f) => f.endsWith('.an5')).sort();
+  const hash = crypto.createHash('sha256');
+  for (const f of files) {
+    hash.update(fs.readFileSync(path.join(schemaDir, f), 'utf8'));
+  }
+  return hash.digest('hex');
+}
+
+export function checkSchemaIndexStale(schemaDir: string): boolean {
+  const currentHash = computeSchemaHash(schemaDir);
+  return currentHash !== '' && currentHash !== lastSchemaHash;
+}
+
+export async function autoSyncSchemaIndex(schemaDir: string): Promise<{ synced: boolean; indexed: number }> {
+  const currentHash = computeSchemaHash(schemaDir);
+  if (currentHash === '' || currentHash === lastSchemaHash) {
+    return { synced: false, indexed: 0 };
+  }
+  console.log(`[rag] Auto-syncing schema index for ${schemaDir}...`);
+  const result = await indexSchema(schemaDir);
+  lastSchemaHash = currentHash;
+  return { synced: true, indexed: result.indexed };
+}

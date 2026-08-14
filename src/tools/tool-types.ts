@@ -56,4 +56,6 @@ export const SchemaIssueSchema = z.object({
   field: z.string().optional().describe('Affected field if applicable'),
   message: z.string().describe('Description of the issue'),
   suggestion: z.string().optional().describe('Suggested fix'),
+  autoFixSql: z.string().optional().describe('Auto-fix SQL or schema attribute hint'),
+  category: z.string().optional().describe('Issue category (e.g. index, pk, naming, unique, audit)'),
 });
