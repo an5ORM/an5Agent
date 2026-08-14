@@ -215,7 +215,20 @@ function defaultSchemaPath(): string | undefined {
   return undefined;
 }
 
-function parseModelsForAnalysis(schemaPath?: string): Array<{ name: string; fields: Array<{ name: string; type: string; isRequired: boolean; isId?: boolean }>; relations?: Array<{ fromField: string; toModel: string }> }> {
+function parseModelsForAnalysis(schemaPath?: string): Array<{
+  name: string;
+  indexes?: string[];
+  fields: Array<{
+    name: string;
+    type: string;
+    isRequired: boolean;
+    isId?: boolean;
+    isUnique?: boolean;
+    isIndexed?: boolean;
+    isFk?: boolean;
+  }>;
+  relations?: Array<{ fromField: string; toModel: string }>;
+}> {
   // Try loading from an5Client metadata first
   const metadata = loadMetadata();
   if (metadata) {
@@ -230,6 +243,9 @@ function parseModelsForAnalysis(schemaPath?: string): Array<{ name: string; fiel
           type: cleanTs,
           isRequired: !ts.endsWith('?'),
           isId: fieldName === 'id',
+          isUnique: fieldName === 'email' || fieldName === 'username',
+          isIndexed: fieldName === 'id',
+          isFk: fieldName.endsWith('Id') && fieldName !== 'id',
         };
       });
       const rels = Object.entries(relationMap)
@@ -253,18 +269,36 @@ function parseModelsForAnalysis(schemaPath?: string): Array<{ name: string; fiel
         const content = fs.readFileSync(path.join(dir, file), 'utf-8');
         const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/g; let match;
         while ((match = modelRegex.exec(content)) !== null) {
-          const fields = match[2].split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//') && !l.startsWith('@@')).map((l) => {
+          const body = match[2];
+          const modelIndexes: string[] = [];
+          const idxMatch = body.match(/@@index\(\[([^\]]+)\]\)/);
+          if (idxMatch) {
+            modelIndexes.push(...idxMatch[1].split(',').map((s) => s.trim().replace(/^"|"$/g, '')));
+          }
+          const fields = body.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//') && !l.startsWith('@@')).map((l) => {
             const parts = l.split(/\s+/); const attrs = l.substring(l.indexOf(parts[1] || '') + (parts[1]?.length || 0)).trim();
-            return { name: parts[0], type: (parts[1] || 'String').replace('?', ''), isRequired: !parts[1]?.includes('?'), isId: attrs.includes('@id') };
+            const isId = attrs.includes('@id');
+            const isUnique = attrs.includes('@unique');
+            const isIndexed = attrs.includes('@index') || modelIndexes.includes(parts[0]);
+            const isFk = (parts[0].endsWith('Id') && parts[0] !== 'id') || attrs.includes('@relation');
+            return {
+              name: parts[0],
+              type: (parts[1] || 'String').replace('?', ''),
+              isRequired: !parts[1]?.includes('?'),
+              isId,
+              isUnique,
+              isIndexed,
+              isFk,
+            };
           });
-          models.push({ name: match[1], fields, relations: [] });
+          models.push({ name: match[1], indexes: modelIndexes, fields, relations: [] });
         }
       }
       if (models.length > 0) return models;
     } catch {}
   }
   return [
-    { name: 'User', fields: [{ name: 'id', type: 'String', isRequired: true, isId: true }, { name: 'email', type: 'String', isRequired: true }, { name: 'name', type: 'String', isRequired: false }, { name: 'createdAt', type: 'DateTime', isRequired: true }], relations: [{ fromField: 'id', toModel: 'Order' }] },
-    { name: 'Order', fields: [{ name: 'id', type: 'String', isRequired: true, isId: true }, { name: 'userId', type: 'String', isRequired: true }, { name: 'total', type: 'Int', isRequired: true }, { name: 'createdAt', type: 'DateTime', isRequired: true }], relations: [{ fromField: 'userId', toModel: 'User' }] },
+    { name: 'User', fields: [{ name: 'id', type: 'String', isRequired: true, isId: true }, { name: 'email', type: 'String', isRequired: true, isUnique: true }, { name: 'name', type: 'String', isRequired: false }, { name: 'createdAt', type: 'DateTime', isRequired: true }], relations: [{ fromField: 'id', toModel: 'Order' }] },
+    { name: 'Order', fields: [{ name: 'id', type: 'String', isRequired: true, isId: true }, { name: 'userId', type: 'String', isRequired: true, isFk: true }, { name: 'total', type: 'Int', isRequired: true }, { name: 'createdAt', type: 'DateTime', isRequired: true }], relations: [{ fromField: 'userId', toModel: 'User' }] },
   ];
 }
