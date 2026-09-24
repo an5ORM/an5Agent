@@ -20,6 +20,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "pretest": "npm run build",
     "test": "node test/smoke.test.js",
     "rag:index": "npx tsx scripts/index-schema.ts"
   },
