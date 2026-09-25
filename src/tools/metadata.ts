@@ -23,9 +23,12 @@ function tryLoadFromFile(filePath: string): Metadata | null {
     const mttMatch = cleaned.match(/export\s+const\s+modelToTable[^=]+=\s*\{([^}]+)\}/);
     const modelToTable: Record<string, string> = {};
     if (mttMatch) {
-      mttMatch[1].split(',').forEach((line: string) => {
+      const body = mttMatch[1] ?? '';
+      body.split(',').forEach((line: string) => {
         const kv = line.trim().match(/(\w+)\s*:\s*"([^"]+)"/);
-        if (kv) modelToTable[kv[1]] = kv[2];
+        const k = kv?.[1];
+        const v = kv?.[2];
+        if (k !== undefined && v !== undefined) modelToTable[k] = v;
       });
     }
 
@@ -33,30 +36,39 @@ function tryLoadFromFile(filePath: string): Metadata | null {
     const mfMatch = cleaned.match(/export\s+const\s+modelFields[^=]+=\s*\{([\s\S]+?)\};/);
     const modelFields: Record<string, Record<string, { ts: string; sql: string }>> = {};
     if (mfMatch) {
-      const block = mfMatch[1];
+      const block = mfMatch[1] ?? '';
       const modelBlocks = block.match(/(\w+)\s*:\s*\{([^}]+)\}/g);
       if (modelBlocks) {
         modelBlocks.forEach((mb: string) => {
           const m = mb.match(/(\w+)\s*:\s*\{([^}]+)\}/);
           if (m) {
             const fields: Record<string, { ts: string; sql: string }> = {};
-            m[2].split(',').forEach((fv: string) => {
+            const fieldBlock = m[2] ?? '';
+            fieldBlock.split(',').forEach((fv: string) => {
               // New format: fieldName: { ts: "type", sql: "SQLTYPE" }
               const newFmt = fv.trim().match(/(\w+)\s*:\s*\{\s*ts\s*:\s*"([^"]+)"\s*,\s*sql\s*:\s*"([^"]+)"\s*\}/);
               if (newFmt) {
-                fields[newFmt[1]] = { ts: newFmt[2], sql: newFmt[3] };
+                const fk = newFmt[1];
+                const fts = newFmt[2];
+                const fsql = newFmt[3];
+                if (fk !== undefined && fts !== undefined && fsql !== undefined) {
+                  fields[fk] = { ts: fts, sql: fsql };
+                }
                 return;
               }
               // Legacy format: fieldName: "type"
               const oldFmt = fv.trim().match(/(\w+)\s*:\s*"([^"]+)"/);
               if (oldFmt) {
+                const ok = oldFmt[1];
                 const raw = oldFmt[2];
+                if (ok === undefined || raw === undefined) return;
                 const clean = raw.replace('?', '');
                 const sqlType = mapLegacyTsToSql(clean);
-                fields[oldFmt[1]] = { ts: raw, sql: sqlType };
+                fields[ok] = { ts: raw, sql: sqlType };
               }
             });
-            modelFields[m[1]] = fields;
+            const modelKey = m[1];
+            if (modelKey !== undefined) modelFields[modelKey] = fields;
           }
         });
       }
@@ -66,12 +78,13 @@ function tryLoadFromFile(filePath: string): Metadata | null {
     const rmMatch = cleaned.match(/export\s+const\s+relationMap[^=]+=\s*\{([\s\S]+?)\};/);
     const relationMap: Record<string, any> = {};
     if (rmMatch) {
-      const block = rmMatch[1];
+      const block = rmMatch[1] ?? '';
       const modelBlocks = block.match(/(\w+)\s*:\s*\{([^}]*)\}/g);
       if (modelBlocks) {
         modelBlocks.forEach((mb: string) => {
           const m = mb.match(/(\w+)\s*:\s*\{([^}]*)\}/);
-          if (m) relationMap[m[1]] = {};
+          const modelKey = m?.[1];
+          if (modelKey !== undefined) relationMap[modelKey] = {};
         });
       }
     }

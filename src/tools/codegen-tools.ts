@@ -36,11 +36,14 @@ export const generateClientCode: Tool = {
         const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/g;
         let match;
         while ((match = modelRegex.exec(content)) !== null) {
-          const fields = match[2].split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//') && !l.startsWith('@@')).map((l) => {
+          const modelName = match[1] ?? '';
+          const fields = (match[2] ?? '').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//') && !l.startsWith('@@')).map((l) => {
             const parts = l.split(/\s+/);
-            return { name: parts[0], type: parts[1]?.replace('?', ''), isRequired: !parts[1]?.includes('?') };
+            const name = parts[0] ?? '';
+            const rawType = parts[1] ?? '';
+            return { name, type: rawType.replace('?', ''), isRequired: !rawType.includes('?') };
           });
-          models.push({ name: match[1], fields });
+          models.push({ name: modelName, fields });
         }
       }
       const outputDirFinal = input.outputDir || `./generated/${input.language}`;
@@ -90,7 +93,8 @@ export const analyzeSchema: Tool = {
       }
 
       // Rule 2: Naming Conventions (PascalCase for Model)
-      if (model.name && model.name[0] !== model.name[0].toUpperCase()) {
+      const firstChar = model.name[0];
+      if (model.name && firstChar !== undefined && firstChar !== firstChar.toUpperCase()) {
         issues.push({
           severity: 'warning' as const,
           model: model.name,
@@ -270,28 +274,32 @@ function parseModelsForAnalysis(schemaPath?: string): Array<{
         const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/g; let match;
         while ((match = modelRegex.exec(content)) !== null) {
           const body = match[2];
+          if (body === undefined) continue;
           const modelIndexes: string[] = [];
           const idxMatch = body.match(/@@index\(\[([^\]]+)\]\)/);
-          if (idxMatch) {
+          if (idxMatch?.[1]) {
             modelIndexes.push(...idxMatch[1].split(',').map((s) => s.trim().replace(/^"|"$/g, '')));
           }
           const fields = body.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//') && !l.startsWith('@@')).map((l) => {
-            const parts = l.split(/\s+/); const attrs = l.substring(l.indexOf(parts[1] || '') + (parts[1]?.length || 0)).trim();
+            const parts = l.split(/\s+/);
+            const partName = parts[0] ?? '';
+            const rawType = parts[1];
+            const attrs = l.substring(l.indexOf(rawType ?? '') + (rawType?.length ?? 0)).trim();
             const isId = attrs.includes('@id');
             const isUnique = attrs.includes('@unique');
-            const isIndexed = attrs.includes('@index') || modelIndexes.includes(parts[0]);
-            const isFk = (parts[0].endsWith('Id') && parts[0] !== 'id') || attrs.includes('@relation');
+            const isIndexed = attrs.includes('@index') || modelIndexes.includes(partName);
+            const isFk = (partName.endsWith('Id') && partName !== 'id') || attrs.includes('@relation');
             return {
-              name: parts[0],
-              type: (parts[1] || 'String').replace('?', ''),
-              isRequired: !parts[1]?.includes('?'),
+              name: partName,
+              type: (rawType ?? 'String').replace('?', ''),
+              isRequired: !(rawType ?? '').includes('?'),
               isId,
               isUnique,
               isIndexed,
               isFk,
             };
           });
-          models.push({ name: match[1], indexes: modelIndexes, fields, relations: [] });
+          models.push({ name: match[1] ?? '', indexes: modelIndexes, fields, relations: [] });
         }
       }
       if (models.length > 0) return models;

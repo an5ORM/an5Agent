@@ -168,7 +168,7 @@ export class An5Agent {
     if (q.includes('task') || q.includes('todo') || q.includes('issue list')) {
       if (q.includes('create') || q.includes('add') || q.includes('new')) {
         const typeMatch = userQuestion.match(/\b(bug|warning|todo|issue|optimization|concern)\b/i);
-        const type = typeMatch ? typeMatch[1].toUpperCase() : 'ISSUE';
+        const type = (typeMatch?.[1] ?? 'ISSUE').toUpperCase();
         const output = await this.executeTool('task', { action: 'create', type, description: userQuestion, workspaceDir: toolContext?.schemaPath }, toolContext);
         toolCalls.push({ tool: 'task', input: { action: 'create', type, description: userQuestion }, output });
       } else if (q.includes('delete') || q.includes('remove')) {
@@ -206,6 +206,7 @@ function extractModelName(question: string): string | null {
     const match = question.match(pattern);
     if (match) {
       const name = match[1];
+      if (name === undefined) continue;
       if (!['the', 'a', 'an', 'this', 'that', 'your', 'my'].includes(name.toLowerCase())) {
         return name;
       }
@@ -224,6 +225,7 @@ function extractTableName(question: string): string | null {
     const match = question.match(pattern);
     if (match) {
       const name = match[1];
+      if (name === undefined) continue;
       if (!['the', 'a', 'an', 'this', 'that', 'your', 'my'].includes(name.toLowerCase())) {
         return name;
       }

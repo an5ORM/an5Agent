@@ -6,7 +6,7 @@ import { getAi, schemaIndexer, schemaRetriever, queryIndexer, queryRetriever } f
 export interface ModelBlock {
   modelName: string;
   tableName: string;
-  schema?: string;
+  schema?: string | undefined;
   text: string;
   fields: Array<{ name: string; type: string; attributes?: string }>;
   relations: Array<{ name: string; target: string; foreignKey?: string; localKey?: string }>;
@@ -24,14 +24,15 @@ export function parseAn5Schema(schemaDir: string): ModelBlock[] {
     while ((match = modelRegex.exec(content)) !== null) {
       const modelName = match[1];
       const block = match[2];
+      if (modelName === undefined || block === undefined) continue;
 
       let tableName = modelName.toLowerCase() + 's';
       const mapMatch = block.match(/@@map\("(.+?)"\)/);
-      if (mapMatch) tableName = mapMatch[1];
+      if (mapMatch?.[1]) tableName = mapMatch[1];
 
       let schema: string | undefined;
       const schemaMatch = block.match(/@@schema\("(.+?)"\)/);
-      if (schemaMatch) schema = schemaMatch[1];
+      if (schemaMatch?.[1]) schema = schemaMatch[1];
 
       const fields: ModelBlock['fields'] = [];
       const relations: ModelBlock['relations'] = [];
@@ -42,12 +43,11 @@ export function parseAn5Schema(schemaDir: string): ModelBlock[] {
         const fieldName = parts[0];
         const fieldType = parts[1];
         if (!fieldName || !fieldType) continue;
-        const cleanType = fieldType.replace('[]', '').replace('?', '');
         const attrs = line.substring(line.indexOf(fieldType) + fieldType.length).trim();
         fields.push({ name: fieldName, type: fieldType, attributes: attrs });
       }
 
-      models.push({ modelName, tableName, schema, text: match[0], fields, relations });
+      models.push({ modelName, tableName, schema, text: match[0] ?? '', fields, relations });
     }
   }
 

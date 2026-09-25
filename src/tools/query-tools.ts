@@ -59,21 +59,24 @@ export const queryTool: Tool = {
 function generateSqlFromDescription(description: string, tables?: string[]): string {
   const desc = description.toLowerCase();
   if (desc.includes('select') && desc.includes('from')) { return description; }
-  if (desc.includes('count') && desc.includes('user')) { tables ??= ['Users']; return `SELECT COUNT(*) AS UserCount\nFROM [dbo].[${tables[0]}] WITH (NOLOCK);`; }
-  if ((desc.includes('all') || desc.includes('list')) && (desc.includes('user') || desc.includes('customer'))) { tables ??= ['Users']; return `SELECT *\nFROM [dbo].[${tables[0]}] WITH (NOLOCK)\nORDER BY [createdAt] DESC;`; }
-  if (desc.includes('recent') || desc.includes('latest') || desc.includes('last')) { tables ??= ['Orders']; return `SELECT TOP 10 *\nFROM [dbo].[${tables[0]}] WITH (NOLOCK)\nORDER BY [createdAt] DESC;`; }
+  if (desc.includes('count') && desc.includes('user')) { tables ??= ['Users']; return `SELECT COUNT(*) AS UserCount\nFROM [dbo].[${tables[0] ?? 'Users'}] WITH (NOLOCK);`; }
+  if ((desc.includes('all') || desc.includes('list')) && (desc.includes('user') || desc.includes('customer'))) { tables ??= ['Users']; return `SELECT *\nFROM [dbo].[${tables[0] ?? 'Users'}] WITH (NOLOCK)\nORDER BY [createdAt] DESC;`; }
+  if (desc.includes('recent') || desc.includes('latest') || desc.includes('last')) { tables ??= ['Orders']; return `SELECT TOP 10 *\nFROM [dbo].[${tables[0] ?? 'Orders'}] WITH (NOLOCK)\nORDER BY [createdAt] DESC;`; }
   if (desc.includes('join') || (desc.includes('with') && (desc.includes('order') || desc.includes('user')))) {
     return `SELECT u.[id], u.[email], u.[name], o.[id] AS OrderId, o.[total], o.[createdAt] AS OrderDate\nFROM [dbo].[User] u WITH (NOLOCK)\nLEFT JOIN [dbo].[Order] o WITH (NOLOCK) ON u.[id] = o.[userId]\nORDER BY u.[name] ASC;`;
   }
   tables ??= ['Users'];
-  return `SELECT *\nFROM [dbo].[${tables[0]}] WITH (NOLOCK);`;
+  return `SELECT *\nFROM [dbo].[${tables[0] ?? 'Users'}] WITH (NOLOCK);`;
 }
 
 function extractTableNames(sql: string): string[] {
   const tables: string[] = [];
   const regex = /(?:FROM|JOIN)\s+\[?(\w+)\]?\.?\[?(\w+)\]?/gi;
-  let match;
-  while ((match = regex.exec(sql)) !== null) { tables.push(match[2] || match[1]); }
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(sql)) !== null) {
+    const t = match[2] ?? match[1];
+    if (t !== undefined) tables.push(t);
+  }
   return [...new Set(tables)];
 }
 
@@ -82,7 +85,6 @@ function explainSqlQuery(sql: string) {
   const hasJoin = /\bJOIN\b/i.test(sql);
   const hasWhere = /\bWHERE\b/i.test(sql);
   const hasGroupBy = /\bGROUP\s+BY\b/i.test(sql);
-  const hasOrderBy = /\bORDER\s+BY\b/i.test(sql);
   const hasSubquery = /\(\s*SELECT\b/i.test(sql);
   const hasAggregate = /\b(COUNT|SUM|AVG|MIN|MAX)\s*\(/i.test(sql);
   const hasNolock = /\bWITH\s*\(\s*NOLOCK\s*\)/i.test(sql);

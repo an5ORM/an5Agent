@@ -118,7 +118,7 @@ function parseModels(schemaPath?: string): Array<{
   const metadata = loadMetadata();
   if (metadata) {
     const { modelToTable, modelFields } = metadata;
-    return Object.entries(modelToTable).map(([modelName, tableName]) => {
+    return Object.entries(modelToTable).map(([modelName]) => {
       const fields = modelFields[modelName] || {};
       const fieldList = Object.entries(fields).map(([fieldName, fieldDef]: [string, any]) => {
         const ts = typeof fieldDef === 'string' ? fieldDef : (fieldDef?.ts || '');
@@ -188,8 +188,9 @@ function parseAn5Content(content: string): Array<{
   const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/g;
   let match;
   while ((match = modelRegex.exec(content)) !== null) {
-    const name = match[1];
+    const name = match[1] ?? '';
     const body = match[2];
+    if (body === undefined) continue;
     const fields: any[] = [];
     const relations: any[] = [];
     const lines = body.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -197,8 +198,8 @@ function parseAn5Content(content: string): Array<{
       if (line.startsWith('//') || line.startsWith('@@')) continue;
       const parts = line.split(/\s+/);
       if (parts.length < 2) continue;
-      const fieldName = parts[0];
-      const fieldType = parts[1];
+      const fieldName = parts[0] ?? '';
+      const fieldType = parts[1] ?? '';
       const attrs = line.substring(line.indexOf(fieldType) + fieldType.length).trim();
       const isId = attrs.includes('@id');
       const isUnique = attrs.includes('@unique');
