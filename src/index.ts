@@ -142,8 +142,8 @@ export class An5Agent {
     }
 
     // Code generation tools
-    if (q.includes('generate') && (q.includes('client') || q.includes('code') || q.includes('typescript') || q.includes('python') || q.includes('c#'))) {
-      const lang = q.includes('python') ? 'python' : q.includes('c#') || q.includes('dotnet') ? 'dotnet' : 'typescript';
+    if (q.includes('generate') && (q.includes('client') || q.includes('code') || q.includes('typescript') || q.includes('python') || q.includes('c#') || q.includes('rust') || q.includes('golang') || q.includes('go '))) {
+      const lang = q.includes('python') ? 'python' : q.includes('c#') || q.includes('dotnet') ? 'dotnet' : q.includes('rust') ? 'rust' : q.includes('golang') || q.includes('go ') ? 'golang' : 'typescript';
       const output = await this.executeTool('generateClientCode', { schemaPath: toolContext?.schemaPath || '.', language: lang }, toolContext);
       toolCalls.push({ tool: 'generateClientCode', input: { language: lang }, output });
     }
