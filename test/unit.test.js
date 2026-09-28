@@ -145,7 +145,13 @@ console.log('\nRAG Pipeline:');
 
 test('rag/indexer.ts exports parseAn5Schema', () => {
   const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'rag', 'indexer.ts'), 'utf8');
-  assertIncludes(content, 'export function parseAn5Schema');
+  assertIncludes(content, 'export async function parseAn5Schema');
+});
+
+test('rag/indexer.ts reads schemas with the shared ORM parser', () => {
+  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'rag', 'indexer.ts'), 'utf8');
+  assertIncludes(content, "require('@an5/orm/generator')");
+  assertIncludes(content, 'SchemaParser');
 });
 
 test('rag/indexer.ts exports indexSchema', () => {

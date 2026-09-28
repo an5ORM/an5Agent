@@ -8,12 +8,87 @@ export interface ModelBlock {
   tableName: string;
   schema?: string | undefined;
   text: string;
-  fields: Array<{ name: string; type: string; attributes?: string }>;
-  relations: Array<{ name: string; target: string; foreignKey?: string; localKey?: string }>;
+  description?: string;
+  fields: Array<{
+    name: string;
+    type: string;
+    attributes?: string;
+    description?: string;
+    isId?: boolean;
+    isUnique?: boolean;
+    hasDefault?: boolean;
+  }>;
+  relations: Array<{
+    name: string;
+    target: string;
+    foreignKey?: string;
+    localKey?: string;
+    description?: string;
+    isArray?: boolean;
+  }>;
 }
 
-export function parseAn5Schema(schemaDir: string): ModelBlock[] {
+/**
+ * Parses a `.an5` schema with `@an5/orm`'s own SchemaParser.
+ *
+ * The ORM owns the syntax, so indexing through it keeps the retrieved context
+ * identical to what the code generators see. Returns undefined when the
+ * package is not installed, so a workspace without it still gets indexed by
+ * the fallback below.
+ */
+async function parseWithOrmGenerator(schemaDir: string): Promise<ModelBlock[] | undefined> {
+  if (!fs.existsSync(schemaDir)) return undefined;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const gen = require('@an5/orm/generator');
+    const models = await new gen.SchemaParser(schemaDir).parse();
+    if (!models || models.length === 0) return undefined;
+
+    return models.map((m: any) => ({
+      modelName: m.name,
+      tableName: m.tableName,
+      schema: m.schemaName,
+      text: '',
+      ...(m.description ? { description: m.description } : {}),
+      fields: m.fields.map((f: any) => ({
+        name: f.name,
+        type: f.type,
+        ...(f.isId ? { isId: true } : {}),
+        ...(f.isUnique ? { isUnique: true } : {}),
+        ...(f.hasDefault ? { hasDefault: true } : {}),
+        ...(f.description ? { description: f.description } : {}),
+      })),
+      relations: m.relations.map((r: any) => ({
+        name: r.name,
+        target: r.type,
+        ...(r.foreignKey ? { foreignKey: r.foreignKey } : {}),
+        ...(r.localKey ? { localKey: r.localKey } : {}),
+        ...(r.isArray ? { isArray: true } : {}),
+        ...(r.description ? { description: r.description } : {}),
+      })),
+    }));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Reads a schema directory into model blocks.
+ *
+ * Prefers the ORM parser and falls back to a local reader for a workspace
+ * where `@an5/orm` is not installed.
+ */
+export async function parseAn5Schema(schemaDir: string): Promise<ModelBlock[]> {
   if (!fs.existsSync(schemaDir)) return [];
+
+  const viaGenerator = await parseWithOrmGenerator(schemaDir);
+  if (viaGenerator) return viaGenerator;
+
+  return parseAn5SchemaLocally(schemaDir);
+}
+
+/** Minimal `.an5` reader used when `@an5/orm` is not installed. */
+function parseAn5SchemaLocally(schemaDir: string): ModelBlock[] {
   const files = fs.readdirSync(schemaDir).filter((f) => f.endsWith('.an5'));
   const models: ModelBlock[] = [];
 
@@ -34,6 +109,7 @@ export function parseAn5Schema(schemaDir: string): ModelBlock[] {
       const schemaMatch = block.match(/@@schema\("(.+?)"\)/);
       if (schemaMatch?.[1]) schema = schemaMatch[1];
 
+      const modelDescription = block.match(/@@description\("(.+?)"\)/)?.[1];
       const fields: ModelBlock['fields'] = [];
       const relations: ModelBlock['relations'] = [];
       const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -44,14 +120,50 @@ export function parseAn5Schema(schemaDir: string): ModelBlock[] {
         const fieldType = parts[1];
         if (!fieldName || !fieldType) continue;
         const attrs = line.substring(line.indexOf(fieldType) + fieldType.length).trim();
-        fields.push({ name: fieldName, type: fieldType, attributes: attrs });
+        const lineDescription = line.match(/@description\("(.+?)"\)/)?.[1];
+        const isArray = fieldType.endsWith('[]');
+        const baseType = fieldType.replace('[]', '').replace('?', '');
+
+        // A line whose type is another model is a relation, not a field.
+        if (isArray || /^[A-Z]/.test(baseType) || attrs.includes('@relation(')) {
+          relations.push({
+            name: fieldName,
+            target: baseType,
+            ...(isArray ? { isArray: true } : {}),
+            // exactOptionalPropertyTypes: only set the keys when present.
+            ...(line.match(/fields:\s*\[(\w+)\]/)?.[1]
+              ? { foreignKey: line.match(/fields:\s*\[(\w+)\]/)?.[1] as string }
+              : {}),
+            ...(line.match(/references:\s*\[(\w+)\]/)?.[1]
+              ? { localKey: line.match(/references:\s*\[(\w+)\]/)?.[1] as string }
+              : {}),
+            ...(lineDescription ? { description: lineDescription } : {}),
+          });
+          continue;
+        }
+
+        fields.push({
+          name: fieldName,
+          type: fieldType,
+          attributes: attrs,
+          ...(lineDescription ? { description: lineDescription } : {}),
+        });
       }
 
-      models.push({ modelName, tableName, schema, text: match[0] ?? '', fields, relations });
+      models.push({
+        modelName,
+        tableName,
+        schema,
+        text: match[0] ?? '',
+        ...(modelDescription ? { description: modelDescription } : {}),
+        fields,
+        relations,
+      });
     }
   }
 
-  // Post-process: detect relations from field types matching model names
+  // Post-process: a relation line without an explicit @relation still points at
+  // a model, and the key columns follow the conventional naming.
   const modelNames = new Set(models.map((m) => m.modelName));
   for (const m of models) {
     for (const f of m.fields) {
@@ -69,10 +181,15 @@ function buildSchemaDoc(model: ModelBlock): string {
   const lines: string[] = [];
   lines.push(`Model: ${model.modelName}`);
   lines.push(`Table: [${model.schema || 'dbo'}].[${model.tableName}]`);
+  if (model.description) lines.push(`Description: ${model.description}`);
   lines.push('');
   lines.push('Fields:');
   for (const f of model.fields) {
-    lines.push(`  - ${f.name} ${f.type}${f.attributes ? ' ' + f.attributes : ''}`);
+    const flags = [f.isId ? 'primary key' : '', f.isUnique ? 'unique' : '', f.hasDefault ? 'has default' : '']
+      .filter(Boolean)
+      .join(', ');
+    lines.push(`  - ${f.name} ${f.type}${flags ? ` (${flags})` : ''}`);
+    if (f.description) lines.push(`      ${f.description}`);
   }
   if (model.relations.length > 0) {
     lines.push('');
@@ -80,6 +197,7 @@ function buildSchemaDoc(model: ModelBlock): string {
     for (const r of model.relations) {
       const fk = r.foreignKey ? ` (fk: ${r.foreignKey} -> ${r.localKey || 'id'})` : '';
       lines.push(`  - ${r.name} -> ${r.target}${fk}`);
+      if (r.description) lines.push(`      ${r.description}`);
     }
   }
   return lines.join('\n');
@@ -87,7 +205,7 @@ function buildSchemaDoc(model: ModelBlock): string {
 
 export async function indexSchema(schemaDir: string): Promise<{ indexed: number }> {
   const ai = getAi();
-  const models = parseAn5Schema(schemaDir);
+  const models = await parseAn5Schema(schemaDir);
   if (models.length === 0) {
     console.warn(`[rag] No models found in ${schemaDir}`);
     return { indexed: 0 };
