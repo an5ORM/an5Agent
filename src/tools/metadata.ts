@@ -4,7 +4,7 @@ import path from 'path';
 export interface Metadata {
   modelToTable: Record<string, string>;
   relationMap: Record<string, any>;
-  modelFields: Record<string, Record<string, { ts: string; sql: string }>>;
+  modelFields: Record<string, Record<string, { ts: string; sql: string; description?: string }>>;
 }
 
 function tryLoadFromFile(filePath: string): Metadata | null {
@@ -34,7 +34,7 @@ function tryLoadFromFile(filePath: string): Metadata | null {
 
     // Extract modelFields — supports both old flat format and new { ts, sql } format
     const mfMatch = cleaned.match(/export\s+const\s+modelFields[^=]+=\s*\{([\s\S]+?)\};/);
-    const modelFields: Record<string, Record<string, { ts: string; sql: string }>> = {};
+    const modelFields: Record<string, Record<string, { ts: string; sql: string; description?: string }>> = {};
     if (mfMatch) {
       const block = mfMatch[1] ?? '';
       const modelBlocks = block.match(/(\w+)\s*:\s*\{([^}]+)\}/g);
@@ -42,17 +42,24 @@ function tryLoadFromFile(filePath: string): Metadata | null {
         modelBlocks.forEach((mb: string) => {
           const m = mb.match(/(\w+)\s*:\s*\{([^}]+)\}/);
           if (m) {
-            const fields: Record<string, { ts: string; sql: string }> = {};
+            const fields: Record<string, { ts: string; sql: string; description?: string }> = {};
             const fieldBlock = m[2] ?? '';
-            fieldBlock.split(',').forEach((fv: string) => {
-              // New format: fieldName: { ts: "type", sql: "SQLTYPE" }
-              const newFmt = fv.trim().match(/(\w+)\s*:\s*\{\s*ts\s*:\s*"([^"]+)"\s*,\s*sql\s*:\s*"([^"]+)"\s*\}/);
-              if (newFmt) {
-                const fk = newFmt[1];
-                const fts = newFmt[2];
-                const fsql = newFmt[3];
-                if (fk !== undefined && fts !== undefined && fsql !== undefined) {
-                  fields[fk] = { ts: fts, sql: fsql };
+            // A description may contain commas, so entries are split on the
+            // `fieldName:` boundary rather than on every comma.
+            fieldBlock.split(/(?=\w+\s*:)/).forEach((fv: string) => {
+              // New format: fieldName: { ts: "...", sql: "...", description: "..." }
+              const entry = fv.trim().match(/^(\w+)\s*:\s*\{([\s\S]*)\}$/);
+              if (entry?.[1] !== undefined && entry[2] !== undefined) {
+                const body = entry[2];
+                const ts = body.match(/\bts\s*:\s*"([^"]*)"/)?.[1];
+                const sql = body.match(/\bsql\s*:\s*"([^"]*)"/)?.[1];
+                const description = body.match(/\bdescription\s*:\s*"([^"]*)"/)?.[1];
+                if (ts !== undefined) {
+                  fields[entry[1]] = {
+                    ts,
+                    sql: sql ?? '',
+                    ...(description ? { description } : {}),
+                  };
                 }
                 return;
               }
@@ -113,6 +120,22 @@ export function loadMetadata(): Metadata | null {
     const clientDir = path.join(__dirname, '..', '..', '..', 'an5Client', 'typescript');
     const tsPath = path.join(clientDir, 'an5Metadata.ts');
     const jsPath = path.join(clientDir, 'an5Metadata.js');
+
+    // The compiled metadata is CommonJS, so require it and read the real
+    // objects instead of guessing at the source text.
+    if (fs.existsSync(jsPath)) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require(jsPath) as Partial<Metadata>;
+        if (mod.modelToTable || mod.modelFields) {
+          return {
+            modelToTable: mod.modelToTable ?? {},
+            relationMap: mod.relationMap ?? {},
+            modelFields: mod.modelFields ?? {},
+          };
+        }
+      } catch {}
+    }
     return tryLoadFromFile(jsPath) || tryLoadFromFile(tsPath);
   } catch {}
   return null;

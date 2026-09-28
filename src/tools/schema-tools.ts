@@ -36,6 +36,7 @@ const schemaOutputSchema = z.discriminatedUnion('action', [
         toModel: z.string(),
         toField: z.string(),
         type: z.enum(['one-to-many', 'many-to-one', 'one-to-one', 'many-to-many']),
+        description: z.string().optional(),
       })
     ),
   }),
@@ -48,7 +49,7 @@ export const schemaTool: Tool = {
   inputSchema: schemaInputSchema,
   outputSchema: schemaOutputSchema,
   async execute(input: z.infer<typeof schemaInputSchema>, context) {
-    const models = parseModels(context?.schemaPath || input.schemaPath);
+    const models = await parseModels(context?.schemaPath || input.schemaPath);
 
     switch (input.action) {
       case 'list': {
@@ -95,9 +96,63 @@ export const schemaTool: Tool = {
   },
 };
 
-function parseModels(schemaPath?: string): Array<{
+/**
+ * Parses the schema with `@an5/orm`'s own SchemaParser.
+ *
+ * Returns undefined when the package is not installed, so the caller can fall
+ * back to the local parsers instead of failing.
+ */
+async function parseWithOrmGenerator(
+  schemaPath?: string,
+): Promise<Array<{ name: string; schema?: string; fields: any[]; relations?: any[] }> | undefined> {
+  const target = schemaPath || defaultSchemaPath();
+  if (!target) return undefined;
+
+  const fs = require('fs');
+  const path = require('path');
+  let dir: string;
+  try {
+    const fullPath = path.resolve(target);
+    dir = fs.statSync(fullPath).isDirectory() ? fullPath : path.dirname(fullPath);
+  } catch {
+    return undefined;
+  }
+  if (fs.readdirSync(dir).some((f: string) => f.endsWith('.an5')) === false) return undefined;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const gen = require('@an5/orm/generator');
+    const models = await new gen.SchemaParser(dir).parse();
+    return models.map((m: any) => ({
+      name: m.name,
+      schema: m.schemaName,
+      description: m.description,
+      fields: m.fields.map((f: any) => ({
+        name: f.name,
+        type: f.type,
+        isRequired: !f.isOptional,
+        isUnique: false,
+        isId: f.isId,
+        hasDefault: f.hasDefault,
+        description: f.description,
+      })),
+      relations: m.relations.map((r: any) => ({
+        fromField: r.name,
+        toModel: r.type,
+        toField: r.localKey || 'id',
+        type: r.isArray ? 'one-to-many' : 'many-to-one',
+        description: r.description,
+      })),
+    }));
+  } catch {
+    return undefined;
+  }
+}
+
+async function parseModels(schemaPath?: string): Promise<Array<{
   name: string;
   schema?: string;
+  description?: string;
   fields: Array<{
     name: string;
     type: string;
@@ -107,14 +162,22 @@ function parseModels(schemaPath?: string): Array<{
     hasDefault?: boolean;
     dbType?: string;
     relation?: string;
+    description?: string;
   }>;
   relations?: Array<{
     fromField: string;
     toModel: string;
     toField: string;
     type: string;
+    description?: string;
   }>;
-}> {
+}>> {
+  // `@an5/orm` is the single source of truth for `.an5` syntax, so use its
+  // parser whenever the project has it installed. Only a workspace without the
+  // ORM falls back to the regex parsing below.
+  const generatorModels = await parseWithOrmGenerator(schemaPath);
+  if (generatorModels && generatorModels.length > 0) return generatorModels;
+
   const metadata = loadMetadata();
   if (metadata) {
     const { modelToTable, modelFields } = metadata;
@@ -123,6 +186,7 @@ function parseModels(schemaPath?: string): Array<{
       const fieldList = Object.entries(fields).map(([fieldName, fieldDef]: [string, any]) => {
         const ts = typeof fieldDef === 'string' ? fieldDef : (fieldDef?.ts || '');
         const sql = typeof fieldDef === 'string' ? '' : (fieldDef?.sql || '');
+        const description = typeof fieldDef === 'string' ? undefined : fieldDef?.description;
         return {
           name: fieldName,
           type: ts,
@@ -130,6 +194,7 @@ function parseModels(schemaPath?: string): Array<{
           isRequired: !ts.endsWith('?'),
           isId: fieldName === 'id',
           hasDefault: fieldName === 'id' || fieldName === 'createdAt',
+          ...(description ? { description } : {}),
         };
       });
       const normalizedName = modelName.charAt(0).toUpperCase() + modelName.slice(1);
@@ -207,12 +272,14 @@ function parseAn5Content(content: string): Array<{
       const dbMatch = attrs.match(/@db\.(\w+)/);
       const dbType = dbMatch ? dbMatch[1] : undefined;
       const relMatch = line.match(/(\w+)\s+(\w+)\s+@relation\(/);
+      const lineDescription = line.match(/@description\("(.+)"\)/)?.[1];
       if (relMatch) {
         relations.push({
           fromField: relMatch[1],
           toModel: relMatch[2],
           toField: 'id',
           type: 'many-to-one',
+          ...(lineDescription ? { description: lineDescription } : {}),
         });
       }
       fields.push({
@@ -224,9 +291,16 @@ function parseAn5Content(content: string): Array<{
         hasDefault,
         dbType,
         relation: relMatch ? relMatch[2] : undefined,
+        ...(lineDescription ? { description: lineDescription } : {}),
       });
     }
-    models.push({ name, fields, relations });
+    const modelDescription = body.match(/@@description\("(.+)"\)/)?.[1];
+    models.push({
+      name,
+      fields,
+      relations,
+      ...(modelDescription ? { description: modelDescription } : {}),
+    });
   }
   return models;
 }

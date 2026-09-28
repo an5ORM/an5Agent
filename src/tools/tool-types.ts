@@ -22,11 +22,13 @@ export const FieldSchema = z.object({
   hasDefault: z.boolean().optional().describe('Whether the field has a default value'),
   dbType: z.string().optional().describe('Native database type (e.g., NVarChar, Int)'),
   relation: z.string().optional().describe('Relation target model if this is a relation field'),
+  description: z.string().optional().describe('Field description declared with @description in the schema'),
 });
 
 export const ModelSchema = z.object({
   name: z.string().describe('Model/table name'),
   schema: z.string().optional().describe('Database schema (default: dbo)'),
+  description: z.string().optional().describe('Model description declared with @@description in the schema'),
   fields: z.array(FieldSchema).describe('Fields/columns of the model'),
   relations: z
     .array(
@@ -35,6 +37,7 @@ export const ModelSchema = z.object({
         toModel: z.string(),
         toField: z.string(),
         type: z.enum(['one-to-many', 'many-to-one', 'one-to-one', 'many-to-many']),
+        description: z.string().optional().describe('Relation description declared with @description in the schema'),
       })
     )
     .optional()
