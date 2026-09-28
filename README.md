@@ -54,7 +54,7 @@ const sql = await agent.executeTool('query', {
 | `schema` | `list`, `describe`, `relations` | Explore models, fields, and relationships |
 | `query` | `generate`, `explain`, `validate` | Work with SQL from natural language or existing queries |
 | `database` | `execute`, `describe`, `health` | Run safe database operations and inspect tables |
-| `generateClientCode` | n/a | Generate TS/Python/.NET code |
+| `generateClientCode` | n/a | Generate TypeScript/Python/.NET/Go/Rust code via the `@an5/orm` generator |
 | `analyzeSchema` | n/a | Find schema design issues |
 | `retrieve` | `schema`, `queries` | RAG semantic search over schema and query samples |
 | `task` | `create`, `list`, `update`, `delete` | Manage task workflows |

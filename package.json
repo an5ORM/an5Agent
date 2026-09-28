@@ -30,9 +30,10 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@an5/adapters": "^0.2.5",
+    "@an5/orm": "^1.0.9",
     "@genkit-ai/dev-local-vectorstore": "^1.39.0",
     "genkit": "^1.39.0",
-    "@an5/adapters": "^0.2.5",
     "zod": "^4.4.3"
   }
 }

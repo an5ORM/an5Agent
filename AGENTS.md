@@ -36,7 +36,7 @@ src/
 - `database` — Actions: `execute`, `describe`, `health`
 
 ### Code Generation
-- `generateClientCode` — Generate TS/Python/.NET client code
+- `generateClientCode` — Generate client code for TypeScript, Python, .NET/C#, Go or Rust via the real `@an5/orm` generator
 - `analyzeSchema` — Analyze schema for design issues
 
 ### RAG (Retrieval-Augmented Generation)

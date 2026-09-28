@@ -1,0 +1,9 @@
+model User {
+  id        NVARCHAR(1000) @id @default(uuid())
+  email     NVARCHAR(255)  @unique
+  name      NVARCHAR(255)?
+  createdAt DATETIME2      @default(now())
+  orders    Order[]
+
+  @@map("users")
+}

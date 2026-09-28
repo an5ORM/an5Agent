@@ -1,11 +1,21 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { z } from 'zod';
 import type { Tool } from './tool-types';
 import { SchemaIssueSchema } from './tool-types';
 import { loadMetadata } from './metadata';
 
+/** The parsed schema model type, as produced by the ORM's SchemaParser. */
+type GeneratorModels = Awaited<ReturnType<import('@an5/orm/generator').SchemaParser['parse']>>;
+
+/** Languages the ORM generator can emit a client for. */
+const SUPPORTED_LANGUAGES = ['typescript', 'python', 'dotnet', 'golang', 'rust'] as const;
+type Language = (typeof SUPPORTED_LANGUAGES)[number];
+
 const generateClientCodeInputSchema = z.object({
   schemaPath: z.string().describe('Path to .an5 schema file or directory'),
-  language: z.enum(['typescript', 'python', 'dotnet', 'golang', 'rust']).describe('Target language for code generation'),
+  language: z.enum(SUPPORTED_LANGUAGES).describe('Target language for code generation'),
   outputDir: z.string().optional().describe('Output directory for generated code'),
 });
 
@@ -15,42 +25,158 @@ const generateClientCodeOutputSchema = z.object({
   message: z.string(),
 });
 
+/**
+ * Loads the real code generator from `@an5/orm`.
+ *
+ * The tool deliberately does not re-implement generation: `@an5/orm` is the
+ * single source of truth for every language, so agent output stays identical to
+ * `npm run generate`. A missing dependency is reported instead of silently
+ * falling back to a lower-fidelity generator.
+ */
+function loadGenerator(): typeof import('@an5/orm/generator') {
+  try {
+    return require('@an5/orm/generator');
+  } catch (err) {
+    throw new Error(
+      `The @an5/orm code generator is not available (${(err as Error).message}). ` +
+        'Install @an5/orm in this project to generate client code.',
+    );
+  }
+}
+
+/** Recursively collects generated files with the given extensions. */
+function collectFiles(dir: string, extensions: string[], base = dir): string[] {
+  if (!fs.existsSync(dir)) return [];
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...collectFiles(full, extensions, base));
+    } else if (extensions.some((ext) => entry.name.endsWith(ext))) {
+      out.push(path.relative(base, full));
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * Runs the generator for one language into `workDir` and returns the files it
+ * produced. The generators are file-system based, so a scratch directory is used
+ * when the caller did not ask for a specific output location.
+ */
+function generateForLanguage(
+  language: Language,
+  baseDir: string,
+  models: GeneratorModels,
+): { files: Array<{ path: string; content: string }> } {
+  const gen = loadGenerator();
+  const typeScriptDir = baseDir;
+  const pythonDir = baseDir;
+  const dotnetDir = baseDir;
+  const golangDir = baseDir;
+  const rustDir = baseDir;
+
+  let extensions: string[];
+  switch (language) {
+    case 'typescript':
+      fs.mkdirSync(typeScriptDir, { recursive: true });
+      new gen.CodeGenerator(typeScriptDir).generate(models);
+      new gen.MetadataGenerator(path.join(typeScriptDir, 'an5Metadata.ts')).generate(models);
+      extensions = ['.ts'];
+      break;
+    case 'python':
+      fs.mkdirSync(pythonDir, { recursive: true });
+      new gen.PythonGenerator(path.join(pythonDir, 'an5_metadata.py')).generate(models);
+      extensions = ['.py'];
+      break;
+    case 'dotnet':
+      new gen.DotnetGenerator(dotnetDir).generate(models);
+      extensions = ['.cs'];
+      break;
+    case 'golang':
+      new gen.GolangGenerator(golangDir).generate(models);
+      extensions = ['.go', '.mod'];
+      break;
+    case 'rust':
+      new gen.RustGenerator(rustDir).generate(models);
+      extensions = ['.rs', '.toml'];
+      break;
+  }
+
+  const files = collectFiles(baseDir, extensions).map((rel: string) => ({
+    path: rel,
+    content: fs.readFileSync(path.join(baseDir, rel), 'utf-8'),
+  }));
+  return { files };
+}
+
 export const generateClientCode: Tool = {
   name: 'generateClientCode',
   description:
-    'Generate client code (TypeScript, Python, .NET, Go, or Rust) from .an5 schema definition files. Use this when the user needs to create data access code, client libraries, or typed models from their database schema.',
+    'Generate client code from .an5 schema definition files for any language the ORM supports ' +
+    '(TypeScript, Python, .NET/C#, Go, Rust). Uses the real @an5/orm code generator, so the output ' +
+    'matches `npm run generate` and includes typed models, filters, relations and query builders. ' +
+    'Use this when the user needs data access code, client libraries, or typed models from their schema.',
   inputSchema: generateClientCodeInputSchema,
   outputSchema: generateClientCodeOutputSchema,
   async execute(input: { schemaPath: string; language: string; outputDir?: string }, _context) {
+    let scratchDir: string | null = null;
     try {
-      const fs = require('fs');
-      const path = require('path');
-      const schemaDir = fs.statSync(input.schemaPath).isDirectory() ? input.schemaPath : path.dirname(input.schemaPath);
+      const language = input.language as Language;
+      if (!SUPPORTED_LANGUAGES.includes(language)) {
+        return {
+          success: false,
+          files: [],
+          message: `Unsupported language "${input.language}". Supported: ${SUPPORTED_LANGUAGES.join(', ')}.`,
+        };
+      }
+
+      if (!fs.existsSync(input.schemaPath)) {
+        return { success: false, files: [], message: `Schema path not found: ${input.schemaPath}` };
+      }
+      const schemaDir = fs.statSync(input.schemaPath).isDirectory()
+        ? input.schemaPath
+        : path.dirname(input.schemaPath);
       const schemaFiles = fs.readdirSync(schemaDir).filter((f: string) => f.endsWith('.an5'));
       if (schemaFiles.length === 0) {
         return { success: false, files: [], message: 'No .an5 files found in the specified path.' };
       }
-      const models: Array<{ name: string; fields: Array<{ name: string; type: string; isRequired: boolean }> }> = [];
-      for (const file of schemaFiles) {
-        const content = fs.readFileSync(path.join(schemaDir, file), 'utf-8');
-        const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/g;
-        let match;
-        while ((match = modelRegex.exec(content)) !== null) {
-          const modelName = match[1] ?? '';
-          const fields = (match[2] ?? '').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//') && !l.startsWith('@@')).map((l) => {
-            const parts = l.split(/\s+/);
-            const name = parts[0] ?? '';
-            const rawType = parts[1] ?? '';
-            return { name, type: rawType.replace('?', ''), isRequired: !rawType.includes('?') };
-          });
-          models.push({ name: modelName, fields });
-        }
+
+      const gen = loadGenerator();
+      const models = await new gen.SchemaParser(schemaDir).parse();
+      if (models.length === 0) {
+        return { success: false, files: [], message: `No models parsed from ${schemaDir}.` };
       }
-      const outputDirFinal = input.outputDir || `./generated/${input.language}`;
-      const files = input.language === 'python' ? generatePython(models, outputDirFinal) : input.language === 'dotnet' ? generateDotNet(models, outputDirFinal) : input.language === 'golang' ? generateGolang(models, outputDirFinal) : input.language === 'rust' ? generateRust(models, outputDirFinal) : generateTypeScript(models, outputDirFinal);
-      return { success: true, files, message: `Generated ${files.length} file(s) for ${input.language} in ${outputDirFinal}` };
+
+      // Generate into the caller's directory when provided, otherwise into a
+      // scratch directory that is removed once the files have been read.
+      let targetDir: string;
+      if (input.outputDir) {
+        targetDir = path.resolve(input.outputDir);
+        fs.mkdirSync(targetDir, { recursive: true });
+      } else {
+        const scratch = (scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'an5-agent-codegen-')));
+        // Scratch space holds one directory per language so a single run cannot
+        // mix artifacts from different targets.
+        targetDir = path.join(scratch, language);
+      }
+
+      const { files } = generateForLanguage(language, targetDir, models);
+      const modelNames = (models as Array<{ name: string }>).map((m) => m.name).join(', ');
+
+      return {
+        success: true,
+        files,
+        message:
+          `Generated ${files.length} file(s) for ${language} from ${models.length} model(s) ` +
+          `(${modelNames})${input.outputDir ? ` in ${targetDir}` : ''}.`,
+      };
     } catch (err: any) {
       return { success: false, files: [], message: `Generation failed: ${err.message || err}` };
+    } finally {
+      if (scratchDir) {
+        fs.rmSync(scratchDir, { recursive: true, force: true });
+      }
     }
   },
 };
@@ -171,54 +297,6 @@ export const analyzeSchema: Tool = {
     };
   },
 };
-
-function generateTypeScript(models: Array<{ name: string; fields: Array<{ name: string; type: string; isRequired: boolean }> }>, outputDir: string) {
-  const types = models.map((m) => {
-    const fields = m.fields.map((f) => `  ${f.name}${f.isRequired ? '' : '?'}: ${mapTsType(f.type)};`).join('\n');
-    return `export interface ${m.name} {\n${fields}\n}`;
-  });
-  return [{ path: `${outputDir}/index.ts`, content: `// Auto-generated by an5Agent\n\n${types.join('\n\n')}\n` }];
-}
-
-function generatePython(models: Array<{ name: string; fields: Array<{ name: string; type: string; isRequired: boolean }> }>, outputDir: string) {
-  const classes = models.map((m) => {
-    const fields = m.fields.map((f) => `    ${f.name}: ${mapPyType(f.type)}${f.isRequired ? '' : ' = None'}`).join('\n');
-    return `@dataclass\nclass ${m.name}:\n${fields}`;
-  });
-  return [{ path: `${outputDir}/models.py`, content: `# Auto-generated by an5Agent\nfrom dataclasses import dataclass\nfrom datetime import datetime\nfrom typing import Optional, Any\n\n${classes.join('\n\n')}\n` }];
-}
-
-function generateDotNet(models: Array<{ name: string; fields: Array<{ name: string; type: string; isRequired: boolean }> }>, outputDir: string) {
-  return models.map((m) => ({
-    path: `${outputDir}/${m.name}.cs`,
-    content: `// Auto-generated by an5Agent\nnamespace An5Client.Models\n{\n    public class ${m.name}\n    {\n${m.fields.map((f) => `        public ${mapCsType(f.type)} ${capitalize(f.name)} { get; set; }`).join('\n')}\n    }\n}\n`,
-  }));
-}
-
-function generateGolang(models: Array<{ name: string; fields: Array<{ name: string; type: string; isRequired: boolean }> }>, outputDir: string) {
-  const structs = models.map((m) => {
-    const fields = m.fields.map((f) => `\t${capitalize(f.name)} ${mapGoType(f.type)} \`json:"${f.name}"\``).join('\n');
-    return `type ${m.name} struct {\n${fields}\n}`;
-  });
-  return [{ path: `${outputDir}/models.go`, content: `// Auto-generated by an5Agent\npackage an5client\n\n${structs.join('\n\n')}\n` }];
-}
-
-function generateRust(models: Array<{ name: string; fields: Array<{ name: string; type: string; isRequired: boolean }> }>, outputDir: string) {
-  const structs = models.map((m) => {
-    const fields = m.fields.map((f) => `    pub ${toSnake(f.name)}: ${mapRsType(f.type, !f.isRequired)},`).join('\n');
-    return `#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]\npub struct ${m.name} {\n${fields}\n}`;
-  });
-  return [{ path: `${outputDir}/src/models.rs`, content: `//! Auto-generated by an5Agent\nuse chrono::{DateTime, Utc};\n\n${structs.join('\n\n')}\n` }];
-}
-
-function toSnake(s: string): string { return s.replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase(); }
-
-function mapTsType(type: string): string { const m: Record<string, string> = { String: 'string', Int: 'number', Float: 'number', Boolean: 'boolean', DateTime: 'Date', BigInt: 'bigint', Decimal: 'number', Json: 'Record<string, any>' }; return m[type] || 'any'; }
-function mapPyType(type: string): string { const m: Record<string, string> = { String: 'str', Int: 'int', Float: 'float', Boolean: 'bool', DateTime: 'datetime', BigInt: 'int', Decimal: 'float', Json: 'dict' }; return m[type] || 'Any'; }
-function mapCsType(type: string): string { const m: Record<string, string> = { String: 'string', Int: 'int', Float: 'double', Boolean: 'bool', DateTime: 'DateTime', BigInt: 'long', Decimal: 'decimal', Json: 'Dictionary<string, object?>' }; return m[type] || 'object'; }
-function mapGoType(type: string): string { const m: Record<string, string> = { String: 'string', Int: 'int', Float: 'float64', Boolean: 'bool', DateTime: 'time.Time', BigInt: 'int64', Decimal: 'float64', Json: 'string' }; return m[type] || 'string'; }
-function mapRsType(type: string, optional: boolean): string { const m: Record<string, string> = { String: 'String', Int: 'i32', Float: 'f64', Boolean: 'bool', DateTime: 'DateTime<Utc>', BigInt: 'i64', Decimal: 'f64', Json: 'String' }; const t = m[type] || 'String'; return optional ? `Option<${t}>` : t; }
-function capitalize(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function defaultSchemaPath(): string | undefined {
   const path = require('path');

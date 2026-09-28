@@ -48,6 +48,25 @@ async function run() {
   assert.ok(typeof queryTool.execute === 'function', 'queryTool should have execute function');
   console.log(`✅ Static tool exports verified`);
 
+  // Test 9: generateClientCode supports every language the ORM generates
+  const { generateClientCode } = require('../dist/index.js');
+  const supported = [
+    'typescript',
+    'python',
+    'dotnet',
+    'golang',
+    'rust',
+  ];
+  const schemaPath = require('path').join(__dirname, 'fixtures', 'schema');
+  for (const language of supported) {
+    const result = await generateClientCode.execute({ schemaPath, language });
+    assert.ok(result.success, `generateClientCode should support ${language}: ${result.message}`);
+    assert.ok(result.files.length > 0, `${language} should produce files`);
+    const totalBytes = result.files.reduce((sum, f) => sum + f.content.length, 0);
+    assert.ok(totalBytes > 500, `${language} output looks too small (${totalBytes} bytes)`);
+    console.log(`✅ generateClientCode(${language}): ${result.files.length} file(s), ${totalBytes} bytes`);
+  }
+
   // Test 9: database tool - execute action (mock)
   const mockExec = await databaseTool.execute({ action: 'execute', sql: 'SELECT * FROM Users' });
   assert.ok(mockExec.success, 'Mock query should succeed');

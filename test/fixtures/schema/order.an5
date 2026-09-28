@@ -1,0 +1,10 @@
+model Order {
+  id        NVARCHAR(1000) @id @default(uuid())
+  userId    NVARCHAR(1000)
+  total     INT            @default(0)
+  status    NVARCHAR(50)?
+  createdAt DATETIME2      @default(now())
+  user      User           @relation(fields: [userId], references: [id])
+
+  @@map("orders")
+}
