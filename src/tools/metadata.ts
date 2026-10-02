@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 
+/** The database providers this workspace can target; see `@an5/orm`. */
+type Provider = 'mssql' | 'postgres' | 'mysql' | 'sqlite' | 'googlesheets';
+
 export interface Metadata {
   modelToTable: Record<string, string>;
   relationMap: Record<string, any>;
@@ -103,16 +106,43 @@ function tryLoadFromFile(filePath: string): Metadata | null {
   return null;
 }
 
+/**
+ * The database this workspace targets, or undefined when it cannot be told.
+ *
+ * Only used by the legacy path below; current generated metadata carries the type
+ * the schema file declared.
+ */
+function projectProvider(): Provider | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const gen = require('@an5/orm/generator');
+    if (typeof gen.providerForProject !== 'function') return undefined;
+    return gen.providerForProject(path.resolve(__dirname, '..', '..', '..')) as Provider;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A column type for a TypeScript type, for a client generated before the metadata
+ * carried `sql`.
+ *
+ * Delegated to the ORM so the name is one that provider actually has: the previous
+ * hardcoded SQL Server list produced `NVARCHAR(255)` and `BIT` for a PostgreSQL or
+ * SQLite project, which the ORM's own validator then rejected.
+ */
 function mapLegacyTsToSql(tsType: string): string {
-  const map: Record<string, string> = {
-    string: 'NVARCHAR(255)',
-    number: 'INT',
-    boolean: 'BIT',
-    Date: 'DATETIME2',
-    bigint: 'BIGINT',
-    Buffer: 'VARBINARY(MAX)',
-  };
-  return map[tsType] || 'NVARCHAR(MAX)';
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const gen = require('@an5/orm/generator');
+    if (typeof gen.defaultSqlTypeForTs !== 'function') return 'NVARCHAR(MAX)';
+    const provider = projectProvider();
+    return provider
+      ? gen.defaultSqlTypeForTs(tsType, provider)
+      : gen.defaultSqlTypeForTs(tsType);
+  } catch {
+    return 'NVARCHAR(MAX)';
+  }
 }
 
 export function loadMetadata(): Metadata | null {
