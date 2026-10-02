@@ -143,7 +143,14 @@ export const generateClientCode: Tool = {
       }
 
       const gen = loadGenerator();
-      const models = await new gen.SchemaParser(schemaDir).parse();
+      // The ORM validates field types per provider; read it from the project's
+      // config so a PostgreSQL or SQLite schema is checked against its own types
+      // instead of being rejected as SQL Server. Optional because the installed
+      // @an5/orm may predate the export — the parser defaults to SQL Server.
+      const provider = typeof gen.providerForProject === 'function'
+        ? gen.providerForProject(path.dirname(schemaDir))
+        : undefined;
+      const models = await new gen.SchemaParser(schemaDir, provider).parse();
       if (models.length === 0) {
         return { success: false, files: [], message: `No models parsed from ${schemaDir}.` };
       }

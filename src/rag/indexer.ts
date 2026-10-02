@@ -35,13 +35,18 @@ export interface ModelBlock {
  * identical to what the code generators see. Returns undefined when the
  * package is not installed, so a workspace without it still gets indexed by
  * the fallback below.
+ *
+ * The provider comes from the project's config: the ORM validates field types
+ * per database, so parsing as SQL Server would reject a PostgreSQL or SQLite
+ * schema and quietly drop this file from the index.
  */
 async function parseWithOrmGenerator(schemaDir: string): Promise<ModelBlock[] | undefined> {
   if (!fs.existsSync(schemaDir)) return undefined;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const gen = require('@an5/orm/generator');
-    const models = await new gen.SchemaParser(schemaDir).parse();
+    const provider = gen.providerForProject(path.dirname(schemaDir));
+    const models = await new gen.SchemaParser(schemaDir, provider).parse();
     if (!models || models.length === 0) return undefined;
 
     return models.map((m: any) => ({

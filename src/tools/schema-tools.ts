@@ -99,6 +99,10 @@ export const schemaTool: Tool = {
 /**
  * Parses the schema with `@an5/orm`'s own SchemaParser.
  *
+ * The provider is read from the project's config: the ORM validates field types
+ * per provider, so parsing as SQL Server would reject a schema written for
+ * another database and send the caller to the fallback for no reason.
+ *
  * Returns undefined when the package is not installed, so the caller can fall
  * back to the local parsers instead of failing.
  */
@@ -122,7 +126,10 @@ async function parseWithOrmGenerator(
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const gen = require('@an5/orm/generator');
-    const models = await new gen.SchemaParser(dir).parse();
+    const provider = typeof gen.providerForProject === 'function'
+      ? gen.providerForProject(path.dirname(dir))
+      : undefined;
+    const models = await new gen.SchemaParser(dir, provider).parse();
     return models.map((m: any) => ({
       name: m.name,
       schema: m.schemaName,
