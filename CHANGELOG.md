@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1] - 2026-10-02
+
+### Fixed
+- **A schema for another database was reported as broken** — `@an5/orm` validates field
+  types per provider and defaults to SQL Server when none is passed, so every tool here
+  that parsed a `.an5` file rejected a PostgreSQL or SQLite schema and fell back to the
+  local parser, silently. The provider is now read from the project config, and both
+  calls are guarded because the installed ORM may predate the export.
+- **A generated column type named a SQL Server type for any database** — reading a
+  client generated before the metadata carried `sql` still names types from the
+  TypeScript type alone, and the list was SQL Server's: `NVARCHAR(255)`, `BIT`,
+  `DATETIME2`. The mapping comes from `@an5/orm`'s `defaultSqlTypeForTs` now, per
+  provider.
+
 ## [0.2.0] - 2026-10-01
 
 ### Added

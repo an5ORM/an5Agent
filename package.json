@@ -1,6 +1,6 @@
 {
   "name": "@an5/agent",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agent library for AN5 ORM projects, helping users understand databases and interact with schema-driven workflows.",
   "license": "MIT",
   "main": "dist/index.js",
