@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **`an5_query_database` accepted statements it meant to reject** — the
+  `/^\s*SELECT\b/i` guard let `SELECT * INTO copy FROM users` through, and was defeated
+  by a leading comment. A real lexer now skips `--` and `/* */` comments, honours `'`,
+  `"`, backtick, `[...]` and `$tag$` quoting so `';DELETE'` inside a string is not read
+  as a second statement, allows only one statement, and rejects `INTO`, `INSERT`,
+  `UPDATE`, `DELETE`, `MERGE`, `CREATE`, `ALTER`, `DROP`, `EXEC`, `EXECUTE`, `CALL`,
+  `OUTFILE`, `DUMPFILE` and `LOCK`. Nested, unterminated and executable (`/*! */`)
+  comments are refused.
+- **`an5_describe_table` was SQL Server only and read a column that does not exist** —
+  it queried `INFORMATION_SCHEMA.COLUMNS` and expected an `isPrimaryKey` column. It is
+  dialect-aware now (SQLite `pragma_table_info`, others `INFORMATION_SCHEMA` plus a
+  correlated constraint lookup), defaults to `public`/`dbo`/the current database per
+  dialect, and throws explicitly where introspection is unsupported.
+- **`describe` without a connection string invented four columns and two indexes** — it
+  returns an empty column list and an error naming the cause.
+- **A failed query leaked the connection pool** — each operation opens and closes its own
+  connection in a `finally`.
+- **`health` was MSSQL only** — it reports version and current database on PostgreSQL,
+  MySQL and SQLite, and throws a clear error elsewhere.
+- **The mock execution path reported a fabricated result** — it returned a hard-coded
+  `rowCount: 3` and `executionTimeMs: 12`; it now reports its adapter and the real row
+  count.
+- **The MSSQL fallback required a sibling repository path** — it now uses the published
+  `@an5/adapters` package, and the reported adapter is always `an5Adapters`.
+
+### Changed
+- The `schema` argument lost its `.default('dbo')`. Pass the schema explicitly, or rely on
+  the per-dialect default that `describe` applies. Connection-string field descriptions
+  now say "Database connection string" rather than naming one provider.
+
+### Added
+- `test/database-runtime.test.js` covers the SELECT guard, the mock path's honesty, the
+  describe-without-connection error, and a real SQLite round trip including `health` and
+  `isPrimaryKey`.
+- `test/rag-runtime.test.js` exercises the offline embedder through the installed Genkit.
+
 ## [0.2.1] - 2026-10-02
 
 ### Fixed

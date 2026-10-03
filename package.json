@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "pretest": "npm run build",
-    "test": "node test/smoke.test.js",
+    "test": "node test/smoke.test.js && node --test test/rag-runtime.test.js && node --test test/database-runtime.test.js",
     "rag:index": "npx tsx scripts/index-schema.ts"
   },
   "devDependencies": {
@@ -32,8 +32,8 @@
   "dependencies": {
     "@an5/adapters": "^0.2.5",
     "@an5/orm": "^1.0.9",
-    "@genkit-ai/dev-local-vectorstore": "^1.39.0",
-    "genkit": "^1.39.0",
+    "@genkit-ai/dev-local-vectorstore": "^1.42.0",
+    "genkit": "^1.42.0",
     "zod": "^4.4.3"
   }
 }

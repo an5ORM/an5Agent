@@ -1,46 +1,42 @@
+import { describeColumns } from './describe-table';
+import { assertSelectQuery } from './select-query';
 import { z } from 'zod';
 import type { Tool } from './tool-types';
 import { loadMetadata } from './metadata';
 
 export interface DatabaseAdapter {
   exec<T = any>(query: string, params?: Record<string, any>): Promise<T[]>;
+  describe?(table: string, schema?: string): Promise<any[]>;
   version(): Promise<{ version: string; dbName: string }>;
 }
 
-let an5AdaptersAvailable = false;
-try {
-  const mod = require(require('path').join(__dirname, '..', '..', '..', 'an5Adapters', 'typescript', 'an5Adapter'));
-  if (mod?.An5Adapter) an5AdaptersAvailable = true;
-} catch { /* an5Adapters not available */ }
-
 function createAdapter(connectionString: string): DatabaseAdapter {
-  if (an5AdaptersAvailable) {
-    const mod = require(require('path').join(__dirname, '..', '..', '..', 'an5Adapters', 'typescript', 'an5Adapter'));
-    const adapter = new mod.An5Adapter({ connectionString });
-    return {
-      exec: (q, p) => adapter.exec(q, p),
-      version: async () => {
-        const rows = await adapter.exec('SELECT @@VERSION AS version, DB_NAME() AS dbName');
-        return { version: rows[0]?.version?.split('\n')[0] || 'Unknown', dbName: rows[0]?.dbName || 'Unknown' };
-      },
-    };
-  }
-  const mssql = require('mssql');
+  const { createAn5Adapter } = require('@an5/adapters');
+  // Each operation owns its connection, including cleanup after failed queries.
+  const run = async <T>(operation: (adapter: any) => Promise<T>): Promise<T> => {
+    const adapter = createAn5Adapter({ connectionString });
+    try {
+      await adapter.$connect();
+      return await operation(adapter);
+    } finally {
+      await adapter.$disconnect().catch(() => undefined);
+    }
+  };
   return {
-    exec: async (q, p) => {
-      const pool = await mssql.connect(connectionString);
-      const req = pool.request();
-      if (p) for (const [k, v] of Object.entries(p)) req.input(k, v ?? null);
-      const result = await req.query(q);
-      await pool.close();
-      return result.recordset || [];
-    },
-    version: async () => {
-      const pool = await mssql.connect(connectionString);
-      const result = await pool.request().query('SELECT @@VERSION AS version, DB_NAME() AS dbName');
-      await pool.close();
-      return { version: result.recordset[0]?.version?.split('\n')[0] || 'Unknown', dbName: result.recordset[0]?.dbName || 'Unknown' };
-    },
+    exec: (q, p) => run(adapter => adapter.exec(q, p)),
+    describe: (table, schema) => run(adapter => describeColumns(adapter, table, schema)),
+    version: () => run(async adapter => {
+      const queries: Record<string, string> = {
+        mssql: 'SELECT @@VERSION AS version, DB_NAME() AS dbName',
+        postgres: 'SELECT version() AS version, current_database() AS "dbName"',
+        mysql: 'SELECT VERSION() AS version, DATABASE() AS dbName',
+        sqlite: "SELECT sqlite_version() AS version, 'main' AS dbName",
+      };
+      const query = queries[adapter.dialect];
+      if (!query) throw new Error(`Health query is unsupported for ${adapter.dialect}`);
+      const rows = await adapter.exec(query);
+      return { version: String(rows[0]?.version || 'Unknown').split('\n')[0]!, dbName: rows[0]?.dbName || 'Unknown' };
+    }),
   };
 }
 
@@ -48,8 +44,8 @@ const databaseInputSchema = z.object({
   action: z.enum(['execute', 'describe', 'health']).describe('Action to perform'),
   sql: z.string().optional().describe('SQL query (for execute)'),
   tableName: z.string().optional().describe('Table name (for describe)'),
-  schema: z.string().optional().default('dbo').describe('Database schema (for describe)'),
-  connectionString: z.string().optional().describe('SQL Server connection string'),
+  schema: z.string().optional().describe('Database schema (for describe)'),
+  connectionString: z.string().optional().describe('Database connection string'),
   params: z.record(z.string(), z.unknown()).optional().describe('Query parameters (for execute)'),
 });
 
@@ -98,11 +94,13 @@ export const databaseTool: Tool = {
   async execute(input: z.infer<typeof databaseInputSchema>, _context) {
     switch (input.action) {
       case 'execute': {
-        if (!/^\s*SELECT\b/i.test((input.sql || '').trim())) {
-          return { action: 'execute' as const, success: false, error: 'Only SELECT queries are allowed.' };
+        try { assertSelectQuery(input.sql || ''); }
+        catch (error) {
+          return { action: 'execute' as const, success: false, error: (error as Error).message };
         }
         if (!input.connectionString) {
-          return { action: 'execute' as const, success: true, rows: mockQueryResult(input.sql || ''), rowCount: 3, executionTimeMs: 12 };
+          const rows = mockQueryResult(input.sql || '');
+          return { action: 'execute' as const, success: true, adapter: 'mock', rows, rowCount: rows.length, executionTimeMs: 0 };
         }
         try {
           const adapter = createAdapter(input.connectionString);
@@ -112,7 +110,7 @@ export const databaseTool: Tool = {
           return {
             action: 'execute' as const,
             success: true,
-            adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql',
+            adapter: 'an5Adapters',
             rows,
             rowCount: rows.length,
             executionTimeMs: elapsed,
@@ -160,40 +158,19 @@ export const databaseTool: Tool = {
 
         // Fallback to database query
         if (!input.connectionString) {
-          return {
-            action: 'describe' as const,
-            tableName,
-            schema: safeSchema,
-            source: 'database' as const,
-            columns: [
-              { name: 'id', type: 'nvarchar', isNullable: false, isPrimaryKey: true, maxLength: 1000 },
-              { name: 'email', type: 'nvarchar', isNullable: false, isPrimaryKey: false, maxLength: 255 },
-              { name: 'name', type: 'nvarchar', isNullable: true, isPrimaryKey: false, maxLength: 255 },
-              { name: 'createdAt', type: 'datetime2', isNullable: false, isPrimaryKey: false },
-            ],
-            indexes: [{ name: 'PK_id', columns: ['id'], isUnique: true, isPrimary: true }, { name: 'UQ_email', columns: ['email'], isUnique: true, isPrimary: false }],
-          };
+          return { action: 'describe' as const, tableName, schema: safeSchema,
+            source: 'database' as const, columns: [], error: 'No connection string provided and no matching schema metadata found.' };
         }
         try {
           const adapter = createAdapter(input.connectionString);
-          const rows = await adapter.exec(
-            `SELECT c.COLUMN_NAME AS name, c.DATA_TYPE AS type, c.IS_NULLABLE AS isNullable,
-                    c.CHARACTER_MAXIMUM_LENGTH AS maxLength, c.COLUMN_DEFAULT AS defaultValue
-             FROM INFORMATION_SCHEMA.COLUMNS c
-             WHERE c.TABLE_NAME = @p_0 AND c.TABLE_SCHEMA = @p_1
-             ORDER BY c.ORDINAL_POSITION`,
-            { p_0: tableName, p_1: safeSchema }
-          );
+          const columns = await adapter.describe!(tableName, input.schema);
           return {
             action: 'describe' as const,
             tableName,
             schema: safeSchema,
             source: 'database' as const,
-            adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql',
-            columns: rows.map((row: any) => ({
-              name: row.name, type: row.type, isNullable: row.isNullable === 'YES',
-              isPrimaryKey: !!row.isPrimaryKey, maxLength: row.maxLength || undefined, defaultValue: row.defaultValue || undefined,
-            })),
+            adapter: 'an5Adapters',
+            columns,
           };
         } catch (err: any) {
           return { action: 'describe' as const, tableName, schema: safeSchema, source: 'database' as const, columns: [], error: err.message || 'Failed to describe table' };
@@ -208,7 +185,7 @@ export const databaseTool: Tool = {
           const start = Date.now();
           const info = await adapter.version();
           const elapsed = Date.now() - start;
-          return { action: 'health' as const, connected: true, adapter: an5AdaptersAvailable ? 'an5Adapters' : 'mssql', serverVersion: info.version, databaseName: info.dbName, latencyMs: elapsed };
+          return { action: 'health' as const, connected: true, adapter: 'an5Adapters', serverVersion: info.version, databaseName: info.dbName, latencyMs: elapsed };
         } catch (err: any) {
           return { action: 'health' as const, connected: false, error: err.message || 'Connection failed' };
         }
