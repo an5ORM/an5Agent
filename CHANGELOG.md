@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0] - 2026-10-04
+
+### Added
+- Add generateCode with project language detection and actual schema/generated API context. An application model callback can return code; without it, the tool returns context_ready rather than claiming generated code.
+- Route multilingual code requests to this read-only tool. Code generation context requires @an5/orm 1.2.0 or newer.
+
 ## [0.2.2] - 2026-10-03
 
 - Harden SELECT validation and support database introspection across providers.
@@ -92,4 +98,3 @@
 - Initial release
   - 11 agent tools
   - Schema exploration, query generation, database operations
-

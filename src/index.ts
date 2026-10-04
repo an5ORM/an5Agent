@@ -4,6 +4,7 @@ import {
   queryTool,
   databaseTool,
   generateClientCode,
+  generateCode,
   analyzeSchema,
   retrieveTool,
   taskTool,
@@ -15,6 +16,7 @@ export {
   queryTool,
   databaseTool,
   generateClientCode,
+  generateCode,
   analyzeSchema,
   retrieveTool,
   taskTool,
@@ -44,6 +46,7 @@ const DEFAULT_TOOLS: Tool[] = [
   queryTool,
   databaseTool,
   generateClientCode,
+  generateCode,
   analyzeSchema,
   retrieveTool,
   taskTool,
@@ -84,6 +87,12 @@ export class An5Agent {
     const { userQuestion, database, toolContext } = context;
     const q = userQuestion.toLowerCase();
     const toolCalls: Array<{ tool: string; input: unknown; output: unknown }> = [];
+
+    // Application code requests are routed once, separately from SQL/client generation.
+    if (/(viết|sinh|tạo)\s+(mã|code|hàm)|(?:write|generate|create)\s+(?:a\s+)?(?:function|service|repository|application code|code)/i.test(userQuestion) && !/generate.*client/i.test(userQuestion)) { // an5:allow-non-english
+      const output = await this.executeTool('generateCode', { request: userQuestion }, toolContext) as { status: string; code?: string; language: string };
+      return { answer: output.code || `Prepared AN5 code context for ${output.language}. The calling model must use the returned schema and APIs to produce the requested code.`, toolCalls: [{ tool: 'generateCode', input: { request: userQuestion }, output }] };
+    }
 
     // Schema tool
     if ((q.includes('list') || q.includes('what') || q.includes('show') || q.includes('schema?')) && (q.includes('model') || q.includes('table') || q.includes('schema'))) {

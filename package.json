@@ -1,6 +1,6 @@
 {
   "name": "@an5/agent",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Agent library for AN5 ORM projects, helping users understand databases and interact with schema-driven workflows.",
   "license": "MIT",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "pretest": "npm run build",
-    "test": "node test/smoke.test.js && node --test test/rag-runtime.test.js && node --test test/database-runtime.test.js",
+    "test": "node test/smoke.test.js && node --test test/rag-runtime.test.js && node --test test/database-runtime.test.js && node --test test/code-runtime.test.js",
     "rag:index": "npx tsx scripts/index-schema.ts"
   },
   "devDependencies": {

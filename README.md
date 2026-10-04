@@ -1,6 +1,6 @@
 # an5Agent
 
-AI agent library for AN5 ORM. Provides 7 consolidated tools for schema exploration, query generation, database operations, code generation, task workflows, and RAG-powered semantic search.
+AI agent library for AN5 ORM. Provides 8 consolidated tools for schema exploration, query generation, database operations, code generation, task workflows, and RAG-powered semantic search.
 
 ## Features
 
@@ -120,3 +120,20 @@ An5Agent.process()
 ## License
 
 MIT
+
+## Application code from a request
+
+`generateCode` accepts `request`, optional `language` (`auto`, `typescript`, `python`, `dotnet`, `golang`, `rust`), `projectRoot` and `schemaPath`. Auto detection reads manifests in the selected application directory; multiple or missing language markers require an explicit selection. It returns parsed models and generated API references without changing the project. Configure `ToolContext.generateCode` to call your application's model; without it the status is `context_ready`, not generated code. Provider output is uncompiled and needs application validation. Vietnamese requests such as “Viết hàm lấy email của User” route directly to this tool. <!-- an5:allow-non-english -->
+
+```ts
+const response = await agent.process({
+  userQuestion: 'Viết hàm lấy email của User', // an5:allow-non-english
+  toolContext: {
+    projectRoot: '/path/to/application',
+    schemaPath: 'an5Schema',
+    generateCode: async context => yourModel(JSON.stringify(context)),
+  },
+});
+```
+
+`yourModel` is an application callback, not a built-in AN5 model provider.

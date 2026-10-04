@@ -7,3 +7,4 @@ export { databaseTool } from './database-tools';
 export { generateClientCode, analyzeSchema } from './codegen-tools';
 export { retrieveTool } from './rag-tools';
 export { taskTool } from './task-tools';
+export { generateCode } from './code-tools';

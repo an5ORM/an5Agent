@@ -9,6 +9,8 @@ export interface Tool {
 }
 
 export interface ToolContext {
+  projectRoot?: string;
+  generateCode?: (context: Awaited<ReturnType<typeof import('@an5/orm/generator').prepareCodeRequest>>) => Promise<string>;
   schemaPath?: string;
   connectionString?: string;
 }
