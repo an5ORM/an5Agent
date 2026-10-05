@@ -10,7 +10,7 @@ import { loadMetadata } from './metadata';
 type GeneratorModels = Awaited<ReturnType<import('@an5/orm/generator').SchemaParser['parse']>>;
 
 /** Languages the ORM generator can emit a client for. */
-const SUPPORTED_LANGUAGES = ['typescript', 'python', 'dotnet', 'golang', 'rust'] as const;
+const SUPPORTED_LANGUAGES = ['typescript', 'python', 'dotnet', 'golang', 'rust', 'java', 'kotlin', 'swift'] as const;
 type Language = (typeof SUPPORTED_LANGUAGES)[number];
 
 const generateClientCodeInputSchema = z.object({
@@ -75,6 +75,9 @@ function generateForLanguage(
   const dotnetDir = baseDir;
   const golangDir = baseDir;
   const rustDir = baseDir;
+  const javaDir = baseDir;
+  const kotlinDir = baseDir;
+  const swiftDir = baseDir;
 
   let extensions: string[];
   switch (language) {
@@ -101,6 +104,18 @@ function generateForLanguage(
       new gen.RustGenerator(rustDir).generate(models);
       extensions = ['.rs', '.toml'];
       break;
+    case 'java':
+      new gen.JavaGenerator(javaDir).generate(models);
+      extensions = ['.java'];
+      break;
+    case 'kotlin':
+      new gen.KotlinGenerator(kotlinDir).generate(models);
+      extensions = ['.kt'];
+      break;
+    case 'swift':
+      new gen.SwiftGenerator(swiftDir).generate(models);
+      extensions = ['.swift'];
+      break;
   }
 
   const files = collectFiles(baseDir, extensions).map((rel: string) => ({
@@ -114,7 +129,7 @@ export const generateClientCode: Tool = {
   name: 'generateClientCode',
   description:
     'Generate client code from .an5 schema definition files for any language the ORM supports ' +
-    '(TypeScript, Python, .NET/C#, Go, Rust). Uses the real @an5/orm code generator, so the output ' +
+    '(TypeScript, Python, .NET/C#, Go, Rust, Java, Kotlin, Swift). Uses the real @an5/orm code generator, so the output ' +
     'matches `npm run generate` and includes typed models, filters, relations and query builders. ' +
     'Use this when the user needs data access code, client libraries, or typed models from their schema.',
   inputSchema: generateClientCodeInputSchema,

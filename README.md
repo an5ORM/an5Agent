@@ -54,7 +54,7 @@ const sql = await agent.executeTool('query', {
 | `schema` | `list`, `describe`, `relations` | Explore models, fields, and relationships |
 | `query` | `generate`, `explain`, `validate` | Work with SQL from natural language or existing queries |
 | `database` | `execute`, `describe`, `health` | Run safe database operations and inspect tables |
-| `generateClientCode` | n/a | Generate TypeScript/Python/.NET/Go/Rust code via the `@an5/orm` generator |
+| `generateClientCode` | n/a | Generate TypeScript/Python/.NET/Go/Rust/Java/Kotlin/Swift code via the `@an5/orm` generator |
 | `analyzeSchema` | n/a | Find schema design issues |
 | `retrieve` | `schema`, `queries` | RAG semantic search over schema and query samples |
 | `task` | `create`, `list`, `update`, `delete` | Manage task workflows |
@@ -123,7 +123,7 @@ MIT
 
 ## Application code from a request
 
-`generateCode` accepts `request`, optional `language` (`auto`, `typescript`, `python`, `dotnet`, `golang`, `rust`), `projectRoot` and `schemaPath`. Auto detection reads manifests in the selected application directory; multiple or missing language markers require an explicit selection. It returns parsed models and generated API references without changing the project. Configure `ToolContext.generateCode` to call your application's model; without it the status is `context_ready`, not generated code. Provider output is uncompiled and needs application validation. Vietnamese requests such as “Viết hàm lấy email của User” route directly to this tool. <!-- an5:allow-non-english -->
+`generateCode` accepts `request`, optional `language` (`auto`, `typescript`, `python`, `dotnet`, `golang`, `rust`, `java`, `kotlin`, `swift`), `projectRoot` and `schemaPath`. Auto detection reads manifests in the selected application directory; multiple or missing language markers require an explicit selection. It returns parsed models and generated API references without changing the project. Configure `ToolContext.generateCode` to call your application's model; without it the status is `context_ready`, not generated code. Provider output is uncompiled and needs application validation. Vietnamese requests such as “Viết hàm lấy email của User” route directly to this tool. <!-- an5:allow-non-english -->
 
 ```ts
 const response = await agent.process({

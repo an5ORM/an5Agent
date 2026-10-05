@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prepareCodeRequest } from '@an5/orm/generator';
 import type { Tool } from './tool-types';
 
-const inputSchema = z.object({ request: z.string().min(1).max(12000), language: z.enum(['auto', 'typescript', 'python', 'dotnet', 'golang', 'rust']).optional(), projectRoot: z.string().optional(), schemaPath: z.string().optional() });
+const inputSchema = z.object({ request: z.string().min(1).max(12000), language: z.enum(['auto', 'typescript', 'python', 'dotnet', 'golang', 'rust', 'java', 'kotlin', 'swift']).optional(), projectRoot: z.string().optional(), schemaPath: z.string().optional() });
 
 export const generateCode: Tool = {
   name: 'generateCode',

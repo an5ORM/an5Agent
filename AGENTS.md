@@ -37,7 +37,7 @@ src/
 
 ### Code Generation
 - `generateCode` — Request-specific application code through a caller-supplied model callback, or schema/API context for the calling model; automatic project language detection
-- `generateClientCode` — Generate client code for TypeScript, Python, .NET/C#, Go or Rust via the real `@an5/orm` generator
+- `generateClientCode` — Generate client code for TypeScript, Python, .NET/C#, Go, Rust, Java, Kotlin or Swift via the real `@an5/orm` generator
 - `analyzeSchema` — Analyze schema for design issues
 
 ### RAG (Retrieval-Augmented Generation)

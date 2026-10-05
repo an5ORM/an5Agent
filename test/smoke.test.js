@@ -56,6 +56,9 @@ async function run() {
     'dotnet',
     'golang',
     'rust',
+    'java',
+    'kotlin',
+    'swift',
   ];
   const schemaPath = require('path').join(__dirname, 'fixtures', 'schema');
   for (const language of supported) {

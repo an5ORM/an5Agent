@@ -9,12 +9,25 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'an5-code-test-'));
 const schemaPath = path.resolve(__dirname, 'fixtures/schema');
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 test('detects every supported project language and returns real API references without writes', async () => {
-  for (const [language, manifest] of Object.entries({typescript:'tsconfig.json',python:'pyproject.toml',dotnet:'App.csproj',golang:'go.mod',rust:'Cargo.toml'})) {
-    const projectRoot = path.join(root, language); fs.mkdirSync(projectRoot); fs.writeFileSync(path.join(projectRoot, manifest), '{}');
+  // Java and Kotlin are told apart by their build files rather than a manifest name: a Gradle
+  // project carries both, and only the Kotlin one has a `.kts` or `.kt` source beside it.
+  const projects = {
+    typescript: ['tsconfig.json'],
+    python: ['pyproject.toml'],
+    dotnet: ['App.csproj'],
+    golang: ['go.mod'],
+    rust: ['Cargo.toml'],
+    java: ['pom.xml'],
+    kotlin: ['pom.xml', 'App.kt'],
+    swift: ['Package.swift'],
+  };
+  for (const [language, manifests] of Object.entries(projects)) {
+    const projectRoot = path.join(root, language); fs.mkdirSync(projectRoot);
+    for (const manifest of manifests) fs.writeFileSync(path.join(projectRoot, manifest), '{}');
     const output = await generateCode.execute({ request: 'Viết hàm lấy email của User', projectRoot, schemaPath });
     assert.equal(output.language, language); assert.equal(output.status, 'context_ready');
     assert.ok(output.files.length); assert.ok(output.models.some(m => m.name === 'User'));
-    assert.deepEqual(fs.readdirSync(projectRoot), [manifest]);
+    assert.deepEqual(fs.readdirSync(projectRoot).sort(), [...manifests].sort());
   }
 });
 test('ambiguity, unsupported language and empty requests fail explicitly', async () => {
